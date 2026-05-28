@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { signOut } from "./actions";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export default async function AppLayout({
   children,
@@ -33,6 +34,7 @@ export default async function AppLayout({
             </Link>
             <span className="text-foreground/40">·</span>
             <span className="text-foreground/50">{user.email}</span>
+            <ThemeToggle />
             <form action={signOut}>
               <button
                 type="submit"
