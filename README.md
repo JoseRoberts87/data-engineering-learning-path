@@ -1,4 +1,4 @@
-# DE Learning Path
+# Data Engineering Learning Path
 
 A concept-first data engineering curriculum for software engineers. Seven phases, each framed against a SWE practice the learner already knows. Per-concept progress tracking, debounced notes, per-phase quizzes, an end-to-end capstone project tracker, and a Claude-powered AI tutor scoped to the concept you're reading.
 

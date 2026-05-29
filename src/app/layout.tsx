@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "DE Learning Path",
+  title: "Data Engineering Learning Path",
   description: "A concept-first data engineering curriculum for software engineers.",
 };
 

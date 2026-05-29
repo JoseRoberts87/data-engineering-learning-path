@@ -288,7 +288,7 @@ A `flake.nix` provides a reproducible shell. Everyone gets the same Bun, Node
           ];
 
           shellHook = ''
-            echo "DE Learning Path dev shell"
+            echo "Data Engineering Learning Path dev shell"
             echo "  bun       $(bun --version)"
             echo "  node      $(node --version)"
             echo "  supabase  $(supabase --version 2>/dev/null || echo 'n/a')"

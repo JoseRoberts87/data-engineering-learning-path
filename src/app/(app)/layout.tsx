@@ -23,7 +23,7 @@ export default async function AppLayout({
       <header className="border-b border-foreground/10">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
           <Link href="/path" className="text-sm font-semibold tracking-tight">
-            DE Learning Path
+            Data Engineering Learning Path
           </Link>
           <div className="flex items-center gap-4 text-sm text-foreground/70">
             <Link href="/dashboard" className="hover:text-foreground">
