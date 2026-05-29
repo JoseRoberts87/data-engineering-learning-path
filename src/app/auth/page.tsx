@@ -67,18 +67,22 @@ function AuthForm() {
             A sign-in link was sent to <strong>{status.email}</strong>. Click it
             to continue.
           </p>
-          <p className="mt-3 text-xs text-foreground/50">
-            In local development, the link arrives in Mailpit at{" "}
-            <a
-              href="http://127.0.0.1:54324"
-              className="underline"
-              target="_blank"
-              rel="noreferrer"
-            >
-              127.0.0.1:54324
-            </a>
-            .
-          </p>
+          {typeof window !== "undefined" &&
+            (window.location.hostname === "localhost" ||
+              window.location.hostname === "127.0.0.1") && (
+              <p className="mt-3 text-xs text-foreground/50">
+                In local development, the link arrives in Mailpit at{" "}
+                <a
+                  href="http://127.0.0.1:54324"
+                  className="underline"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  127.0.0.1:54324
+                </a>
+                .
+              </p>
+            )}
         </div>
       ) : (
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
