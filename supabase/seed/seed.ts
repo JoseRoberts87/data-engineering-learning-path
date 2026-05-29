@@ -2,6 +2,8 @@ import { createClient } from "@supabase/supabase-js";
 import { phases, concepts } from "./content";
 import { checkpoints, questions } from "./checkpoints";
 import { capstoneSteps } from "./capstone";
+import { resources } from "./resources";
+import { sections } from "./sections";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -27,7 +29,9 @@ async function upsertPhases(): Promise<Map<string, string>> {
   return new Map(data.map((p) => [p.slug, p.id]));
 }
 
-async function upsertConcepts(phaseIds: Map<string, string>) {
+async function upsertConcepts(
+  phaseIds: Map<string, string>,
+): Promise<Map<string, string>> {
   const rows = concepts.map((c) => {
     const phase_id = phaseIds.get(c.phase_slug);
     if (!phase_id) throw new Error(`Unknown phase_slug: ${c.phase_slug}`);
@@ -43,9 +47,69 @@ async function upsertConcepts(phaseIds: Map<string, string>) {
   const { data, error } = await supabase
     .from("concepts")
     .upsert(rows, { onConflict: "slug" })
-    .select("id");
+    .select("id, slug");
   if (error) throw error;
   console.log(`  concepts: ${data.length} upserted`);
+  return new Map(data.map((c) => [c.slug, c.id]));
+}
+
+async function replaceSections(conceptIds: Map<string, string>) {
+  const { error: delErr } = await supabase
+    .from("concept_sections")
+    .delete()
+    .gte("created_at", "1970-01-01");
+  if (delErr) throw delErr;
+
+  const rows = sections.map((s) => {
+    const concept_id = conceptIds.get(s.concept_slug);
+    if (!concept_id)
+      throw new Error(`Unknown concept_slug for section: ${s.concept_slug}`);
+    return {
+      concept_id,
+      type: s.type,
+      sort_order: s.sort_order,
+      payload: s.payload,
+    };
+  });
+  if (rows.length === 0) {
+    console.log("  sections: 0 inserted");
+    return;
+  }
+  const { data, error } = await supabase
+    .from("concept_sections")
+    .insert(rows)
+    .select("id");
+  if (error) throw error;
+  console.log(`  sections: ${data.length} inserted (after delete-all)`);
+}
+
+async function replaceResources(conceptIds: Map<string, string>) {
+  // The resources table has no natural unique key, so we wipe and reinsert.
+  // Sentinel filter required by supabase-js v2 — delete() with no filter is rejected.
+  const { error: delErr } = await supabase
+    .from("resources")
+    .delete()
+    .gte("created_at", "1970-01-01");
+  if (delErr) throw delErr;
+
+  const rows = resources.map((r) => {
+    const concept_id = conceptIds.get(r.concept_slug);
+    if (!concept_id)
+      throw new Error(`Unknown concept_slug for resource: ${r.concept_slug}`);
+    return {
+      concept_id,
+      title: r.title,
+      url: r.url,
+      resource_type: r.resource_type,
+    };
+  });
+  if (rows.length === 0) {
+    console.log("  resources: 0 inserted");
+    return;
+  }
+  const { data, error } = await supabase.from("resources").insert(rows).select("id");
+  if (error) throw error;
+  console.log(`  resources: ${data.length} inserted (after delete-all)`);
 }
 
 async function upsertCheckpoints(
@@ -120,9 +184,11 @@ async function upsertCapstoneSteps(phaseIds: Map<string, string>) {
 async function main() {
   console.log("Seeding content...");
   const phaseIds = await upsertPhases();
-  await upsertConcepts(phaseIds);
+  const conceptIds = await upsertConcepts(phaseIds);
   const checkpointIds = await upsertCheckpoints(phaseIds);
   await replaceQuestions(checkpointIds);
+  await replaceResources(conceptIds);
+  await replaceSections(conceptIds);
   await upsertCapstoneSteps(phaseIds);
   console.log("Done.");
 }

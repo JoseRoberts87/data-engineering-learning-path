@@ -154,6 +154,41 @@ export type Database = {
           },
         ]
       }
+      concept_sections: {
+        Row: {
+          concept_id: string
+          created_at: string
+          id: string
+          payload: Json
+          sort_order: number
+          type: Database["public"]["Enums"]["concept_section_type"]
+        }
+        Insert: {
+          concept_id: string
+          created_at?: string
+          id?: string
+          payload: Json
+          sort_order: number
+          type: Database["public"]["Enums"]["concept_section_type"]
+        }
+        Update: {
+          concept_id?: string
+          created_at?: string
+          id?: string
+          payload?: Json
+          sort_order?: number
+          type?: Database["public"]["Enums"]["concept_section_type"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "concept_sections_concept_id_fkey"
+            columns: ["concept_id"]
+            isOneToOne: false
+            referencedRelation: "concepts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       concepts: {
         Row: {
           created_at: string
@@ -456,6 +491,11 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
+      concept_section_type:
+        | "failure_catalog"
+        | "comparison"
+        | "dimensions"
+        | "inline_quiz"
       progress_status: "not_started" | "in_progress" | "completed"
     }
     CompositeTypes: {
@@ -587,6 +627,12 @@ export const Constants = {
   },
   public: {
     Enums: {
+      concept_section_type: [
+        "failure_catalog",
+        "comparison",
+        "dimensions",
+        "inline_quiz",
+      ],
       progress_status: ["not_started", "in_progress", "completed"],
     },
   },

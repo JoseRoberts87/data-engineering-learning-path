@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
+import type { ConceptSection } from "./sections/types";
 
 export type Resource = {
   title: string;
@@ -15,6 +16,7 @@ export type ConceptDetail = {
   swe_analogy: string;
   phase: { slug: string; number: number; title: string };
   resources: Resource[];
+  sections: ConceptSection[];
   status: "not_started" | "in_progress" | "completed";
   note: string;
 };
@@ -33,18 +35,31 @@ export async function getConceptWithContext(
   if (error) throw error;
   if (!concept) return null;
 
-  const [{ data: progress }, { data: note }] = await Promise.all([
-    supabase
-      .from("user_progress")
-      .select("status")
-      .eq("concept_id", concept.id)
-      .maybeSingle(),
-    supabase
-      .from("user_notes")
-      .select("body")
-      .eq("concept_id", concept.id)
-      .maybeSingle(),
-  ]);
+  const [{ data: progress }, { data: note }, { data: sectionsData }] =
+    await Promise.all([
+      supabase
+        .from("user_progress")
+        .select("status")
+        .eq("concept_id", concept.id)
+        .maybeSingle(),
+      supabase
+        .from("user_notes")
+        .select("body")
+        .eq("concept_id", concept.id)
+        .maybeSingle(),
+      supabase
+        .from("concept_sections")
+        .select("id, type, sort_order, payload")
+        .eq("concept_id", concept.id)
+        .order("sort_order"),
+    ]);
+
+  const sections: ConceptSection[] = (sectionsData ?? []).map((s) => ({
+    id: s.id,
+    type: s.type as ConceptSection["type"],
+    sort_order: s.sort_order,
+    payload: s.payload as never,
+  })) as ConceptSection[];
 
   return {
     id: concept.id,
@@ -58,6 +73,7 @@ export async function getConceptWithContext(
       title: concept.phases.title,
     },
     resources: concept.resources ?? [],
+    sections,
     status: (progress?.status as ConceptDetail["status"]) ?? "not_started",
     note: note?.body ?? "",
   };

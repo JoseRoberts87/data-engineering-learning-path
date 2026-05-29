@@ -8,6 +8,8 @@ import { NotesArea } from "@/features/notes/NotesArea";
 import { setConceptNote } from "@/features/notes/actions";
 import { TutorPanel } from "@/features/tutor/TutorPanel";
 import { getPriorTutorMessages } from "@/features/tutor/queries";
+import { Markdown } from "@/features/concept/sections/Markdown";
+import { renderSection } from "@/features/concept/sections";
 
 export default async function ConceptPage({
   params,
@@ -38,19 +40,19 @@ export default async function ConceptPage({
       </div>
 
       <section className="mt-6">
-        <p className="text-base leading-relaxed text-foreground/85">
-          {concept.description}
-        </p>
+        <Markdown>{concept.description}</Markdown>
       </section>
 
       <section className="mt-8 rounded-md border border-foreground/10 bg-foreground/[0.03] p-5">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-foreground/60">
           The SWE analogy
         </h2>
-        <p className="mt-2 text-base leading-relaxed text-foreground/85">
-          {concept.swe_analogy}
-        </p>
+        <div className="mt-2">
+          <Markdown>{concept.swe_analogy}</Markdown>
+        </div>
       </section>
+
+      {concept.sections.map((s) => renderSection(s))}
 
       {concept.resources.length > 0 && (
         <section className="mt-8">

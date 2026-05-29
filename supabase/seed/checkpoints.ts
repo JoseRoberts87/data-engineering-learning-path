@@ -77,10 +77,11 @@ export const checkpoints: CheckpointSeed[] = [
 ];
 
 export const questions: QuestionSeed[] = [
-  // Phase 1
+  // ── Phase 1 ──────────────────────────────────────────
   {
     checkpoint_slug: "checkpoint-thinking-in-data",
-    prompt: "Why is 'data is the product' a meaningfully different mindset from typical backend engineering?",
+    prompt:
+      "Why is 'data is the product' a meaningfully different mindset from typical backend engineering?",
     options: [
       { id: "a", text: "Because data engineers don't write code.", correct: false },
       {
@@ -92,12 +93,49 @@ export const questions: QuestionSeed[] = [
       { id: "d", text: "Because data engineers only write SQL.", correct: false },
     ],
     explanation:
-      "In backend engineering the API response is the surface; the data behind it is incidental. In data engineering the dataset itself — its schema, freshness, correctness — is what downstream analysts and ML models depend on, so it's the actual product.",
+      "In backend engineering the API response is the surface; the data behind it is incidental. In data engineering the dataset itself — its schema, freshness, correctness — is what downstream analysts and ML models depend on, so it's the actual product. And unlike an API, when the data is wrong nobody pages oncall — trust just quietly erodes.",
     sort_order: 1,
   },
   {
     checkpoint_slug: "checkpoint-thinking-in-data",
-    prompt: "A producer adds a new optional, nullable column to a published table. What kind of schema change is this, conventionally?",
+    prompt:
+      "An e-commerce team's marketing lead reviews the previous day's sales dashboard each morning at 9 AM. Engineering is debating whether to make it real-time. What's the disciplined response?",
+    options: [
+      { id: "a", text: "Build the streaming pipeline; fresher data is always better.", correct: false },
+      {
+        id: "b",
+        text: "Push back — the decision cadence (daily review) should drive the freshness target. A nightly batch is the right tool.",
+        correct: true,
+      },
+      { id: "c", text: "Build both batch and streaming so the team can choose at runtime.", correct: false },
+      { id: "d", text: "Build streaming, but only enable it during business hours.", correct: false },
+    ],
+    explanation:
+      "Real-time is standing infrastructure (you pay for it 24/7) and brings hard problems batch sidesteps — late events, exactly-once semantics, windowing, distributed state. If a human only acts on the data once each morning, real-time freshness is theater. The instinct to internalize: latency should be driven by the decision, not the data.",
+    sort_order: 2,
+  },
+  {
+    checkpoint_slug: "checkpoint-thinking-in-data",
+    prompt:
+      "An ML model trained against your feature `customer_lifetime_value` had 92% accuracy in offline eval but 60% in production. What's the most likely cause?",
+    options: [
+      { id: "a", text: "The model wasn't trained on enough data.", correct: false },
+      {
+        id: "b",
+        text: "Training/serving skew — the feature was computed differently in the batch SQL than in the serving code path.",
+        correct: true,
+      },
+      { id: "c", text: "Random variance; retrain and it'll be fine.", correct: false },
+      { id: "d", text: "The model is overfit to the training set.", correct: false },
+    ],
+    explanation:
+      "Training/serving skew is the canonical ML-vs-DE failure mode: the same feature drifts between how you computed it in the warehouse and how it's computed at request time in production. The model looked brilliant in eval and silently degraded once it hit prod. Feature stores (Feast, Tecton, SageMaker Feature Store) exist to guarantee a single computation path for both training and serving.",
+    sort_order: 3,
+  },
+  {
+    checkpoint_slug: "checkpoint-thinking-in-data",
+    prompt:
+      "A producer adds a new optional, nullable column to a published table. What kind of schema change is this, conventionally?",
     options: [
       { id: "a", text: "Breaking — every consumer must redeploy.", correct: false },
       { id: "b", text: "Backward-compatible — existing consumers can ignore it.", correct: true },
@@ -105,11 +143,119 @@ export const questions: QuestionSeed[] = [
       { id: "d", text: "Allowed only if all consumers approve in advance.", correct: false },
     ],
     explanation:
-      "Adding a new nullable column is backward-compatible: existing consumers can ignore it, and old data still validates against the new schema. Dropping a column or changing a type would be breaking.",
-    sort_order: 2,
+      "Adding a new nullable column is backward-compatible: existing consumers can ignore it, and old data still validates against the new schema. Schema registries (Confluent, AWS Glue) enforce compatibility direction at write time — backward, forward, or full — so the producer literally cannot publish an incompatible change.",
+    sort_order: 4,
+  },
+  {
+    checkpoint_slug: "checkpoint-thinking-in-data",
+    prompt:
+      "Which schema change is most likely to silently corrupt downstream reports without raising any errors?",
+    options: [
+      { id: "a", text: "Renaming a column from `customer_id` to `cust_id`.", correct: false },
+      { id: "b", text: "Changing a column's data type from int to float.", correct: false },
+      {
+        id: "c",
+        text: "Redefining `revenue` from gross-of-tax to net-of-tax while keeping the same name and float type.",
+        correct: true,
+      },
+      { id: "d", text: "Adding a new non-null column without a default.", correct: false },
+    ],
+    explanation:
+      "The structural changes (rename, type change, missing default) typically break consumers or the schema registry rejects them. The killer is the *semantic* change: column name, type, and shape are unchanged, every type check passes, every downstream `SUM(revenue)` is now systematically wrong, and you find out weeks later when finance does a manual reconciliation. A grain change (one-row-per-order → one-row-per-line-item) is the same flavor of silent disaster.",
+    sort_order: 5,
+  },
+  {
+    checkpoint_slug: "checkpoint-thinking-in-data",
+    prompt:
+      "A daily pipeline DAG has job D depending on jobs A, B, C (which run in parallel). Tuesday night, B fails. By Wednesday morning, what's most likely true?",
+    options: [
+      { id: "a", text: "A retry will silently fix it; just check today's run.", correct: false },
+      {
+        id: "b",
+        text: "D didn't run, Tuesday's dashboards are stale, and you now have a backfill problem to resolve before today's run finishes.",
+        correct: true,
+      },
+      { id: "c", text: "Only the dashboards consuming B's output are affected.", correct: false },
+      { id: "d", text: "The orchestrator will automatically reorder the DAG to skip B.", correct: false },
+    ],
+    explanation:
+      "Pipeline failures cascade through DAG dependencies. A failed upstream blocks every downstream that depends on it (D didn't run because B is missing), every dashboard in the chain is now stale, and recovery means backfilling Tuesday's gap *while* today's run is also queueing. This compounding failure shape is why DE leans on DAG orchestrators (Airflow, Dagster, Prefect) — request retries don't apply.",
+    sort_order: 6,
+  },
+  {
+    checkpoint_slug: "checkpoint-thinking-in-data",
+    prompt:
+      "A pipeline transforms raw events into a daily summary table. The team needs to backfill 30 days because they fixed a bug. What design property makes this safe to do?",
+    options: [
+      { id: "a", text: "The pipeline runs on a schedule.", correct: false },
+      {
+        id: "b",
+        text: "Each day's output is deterministic and the write replaces (not appends to) that day's partition.",
+        correct: true,
+      },
+      { id: "c", text: "The pipeline retries on failure.", correct: false },
+      { id: "d", text: "The team disables monitoring during the backfill.", correct: false },
+    ],
+    explanation:
+      "Idempotency means a run produces the same end state regardless of how many times it executes. Per-partition replacement (delete+insert, MERGE, or partition swap) gives that property — backfills overwrite the bad partitions cleanly. Without it, a backfill appends and you double-count for 30 days. The SWE habit of \"insert when this happens\" inverts to \"make the end state correct regardless of how many times this runs.\"",
+    sort_order: 7,
+  },
+  {
+    checkpoint_slug: "checkpoint-thinking-in-data",
+    prompt:
+      "Your daily revenue pipeline normally outputs ~50,000 rows. Today it outputs 48,200 rows and every validation test passes. What kind of test is most likely to catch an issue you'd otherwise miss?",
+    options: [
+      { id: "a", text: "A unit test asserting `revenue >= 0`.", correct: false },
+      { id: "b", text: "A schema test asserting the columns exist.", correct: false },
+      {
+        id: "c",
+        text: "A statistical test: row count is within X% of the trailing 7-day average.",
+        correct: true,
+      },
+      { id: "d", text: "A type check on the `revenue` column.", correct: false },
+    ],
+    explanation:
+      "The exact value (48,200) can't be asserted — it changes daily. Property checks like nullability and type pass on subtly wrong data. The distribution check — comparing today's volume to the recent rolling average — is what catches a silent dropoff (maybe an upstream filter changed and 4% of events are now dropped). Great Expectations and dbt's `accepted_range` / freshness tests automate this style of assertion.",
+    sort_order: 8,
+  },
+  {
+    checkpoint_slug: "checkpoint-thinking-in-data",
+    prompt:
+      "A user's shipping address changed on March 1. They placed an order on February 15 (shipped to the old address) and another on March 10 (shipped to the new address). Your analytics question: \"where did this user ship orders to?\" What's required in the data model?",
+    options: [
+      { id: "a", text: "Just store the current address; analysts can ignore old data.", correct: false },
+      {
+        id: "b",
+        text: "Slowly-Changing-Dimension (SCD) Type 2 — keep both address versions with validity ranges so the historical truth survives.",
+        correct: true,
+      },
+      { id: "c", text: "Always recompute orders against the current address.", correct: false },
+      { id: "d", text: "Just put a timestamp on the orders.", correct: false },
+    ],
+    explanation:
+      "Application databases overwrite (the address column has the new value, period). Analytics needs the *historical* truth — which address was in effect when each order shipped? SCD Type 2 keeps every version of a dimension row with `valid_from` / `valid_to` so joining the order to the address as-of the order date returns the correct historical answer. The broader habit: time and history are first-class problems in DE.",
+    sort_order: 9,
+  },
+  {
+    checkpoint_slug: "checkpoint-thinking-in-data",
+    prompt:
+      "A BigQuery query scans 8 TB and costs $40. The team partitions the underlying table by `event_date` and rewrites the query to filter `where event_date = '2026-05-28'`. The same query now scans 110 GB and costs $0.55. Why?",
+    options: [
+      { id: "a", text: "BigQuery applied a free tier.", correct: false },
+      {
+        id: "b",
+        text: "Partition pruning — the planner skipped partitions that can't match the filter, so only one day's files were scanned.",
+        correct: true,
+      },
+      { id: "c", text: "BigQuery cached the result of the previous run.", correct: false },
+      { id: "d", text: "The team upgraded their billing plan.", correct: false },
+    ],
+    explanation:
+      "Partitioning splits a table into separate physical files keyed by a column (here, `event_date`). When the query's WHERE clause filters on the partition key, the engine prunes (skips entirely) every partition that can't match the filter — turning a full-table scan into a one-partition scan. At scale this is the difference between $40 and $0.55 per query. Partition pruning, columnar formats (Parquet), and incremental models are correctness-adjacent — not optional optimizations.",
+    sort_order: 10,
   },
 
-  // Phase 2
+  // ── Phase 2 ──────────────────────────────────────────
   {
     checkpoint_slug: "checkpoint-data-modeling-fundamentals",
     prompt: "A dashboard aggregates millions of rows across 6 normalized tables to compute a daily KPI. It's slow. What's the typical first move?",
@@ -141,7 +287,7 @@ export const questions: QuestionSeed[] = [
     sort_order: 2,
   },
 
-  // Phase 3
+  // ── Phase 3 ──────────────────────────────────────────
   {
     checkpoint_slug: "checkpoint-data-movement-and-transformation",
     prompt: "A pipeline is rerun for the same partition due to an upstream fix. Without idempotency, what's the most likely failure mode?",
@@ -169,7 +315,7 @@ export const questions: QuestionSeed[] = [
     sort_order: 2,
   },
 
-  // Phase 4
+  // ── Phase 4 ──────────────────────────────────────────
   {
     checkpoint_slug: "checkpoint-pipeline-orchestration-and-reliability",
     prompt: "You discover last week's daily pipeline had a filter bug. Seven days of customer counts are wrong. What's the standard recovery?",
@@ -201,7 +347,7 @@ export const questions: QuestionSeed[] = [
     sort_order: 2,
   },
 
-  // Phase 5
+  // ── Phase 5 ──────────────────────────────────────────
   {
     checkpoint_slug: "checkpoint-streaming-and-event-driven-data",
     prompt: "An IoT device has a wrong clock and emits events timestamped 'yesterday'. Your stream pipeline aggregates per-hour metrics by event time. What happens?",
@@ -237,7 +383,7 @@ export const questions: QuestionSeed[] = [
     sort_order: 2,
   },
 
-  // Phase 6
+  // ── Phase 6 ──────────────────────────────────────────
   {
     checkpoint_slug: "checkpoint-storage-scale-and-compute",
     prompt: "A query reads two columns from a 1-billion-row table stored in row format. Roughly how much data must the engine scan?",
@@ -265,7 +411,7 @@ export const questions: QuestionSeed[] = [
     sort_order: 2,
   },
 
-  // Phase 7
+  // ── Phase 7 ──────────────────────────────────────────
   {
     checkpoint_slug: "checkpoint-data-platform-thinking",
     prompt: "A producer team renames customer_id to cust_id and pushes the change. Three downstream dashboards break immediately. What was missing?",
