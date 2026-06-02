@@ -1282,4 +1282,741 @@ export const sections: SectionSeed[] = [
         "Partitioning splits a table into separate physical files keyed by a column (here, `event_date`). When the query's WHERE filters on the partition key, the engine prunes (skips entirely) every partition that can't match — turning a full-table scan into a one-partition scan. At scale this is the difference between $40 and $0.55 per query. Partition pruning isn't \"just an optimization\" — it's the difference between viable and ruinously expensive.",
     },
   },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // normalization-vs-denormalization
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "normalization-vs-denormalization",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "Same data, opposite optimizations",
+      left_label: "Normalized (OLTP)",
+      right_label: "Denormalized (OLAP)",
+      pairs: [
+        { left: "Every fact stored exactly once", right: "Fields baked onto each row of the consuming table" },
+        {
+          left: "An UPDATE touches one place — no anomalies",
+          right: "Data is immutable history — no anomalies to avoid",
+        },
+        {
+          left: "Reads reassemble the picture via joins",
+          right: "Reads return self-contained rows — no joins",
+        },
+        {
+          left: "Cheap writes, expensive reads at scale",
+          right: "Expensive writes (mostly batch), cheap reads",
+        },
+        {
+          left: "Columnar compression of repeated values: not applicable",
+          right: "Repeated values compress to almost nothing — duplication is nearly free to store",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "normalization-vs-denormalization",
+    sort_order: 2,
+    type: "failure_catalog",
+    payload: {
+      title: "When the wrong choice burns you",
+      items: [
+        {
+          scenario: "Normalized fact table, billion-row analytical query",
+          consequence:
+            "Joining orders → customers → cities → regions at scan time produces an expensive distributed shuffle. The query runs for an hour or OOMs.",
+          de_catches_it:
+            "Denormalize the dimensional attributes onto the fact table. Columnar storage makes the repeated values nearly free.",
+        },
+        {
+          scenario: "Denormalized OLTP table accepting transactional writes",
+          consequence:
+            "When a customer's city changes, you have to update millions of order rows — slow, lock-heavy, and any inconsistency becomes a permanent bug.",
+          de_catches_it:
+            "Don't denormalize OLTP. The whole point of denormalization is the *immutable* nature of analytical data — it doesn't generalize.",
+        },
+        {
+          scenario: "Denormalized but mutable: \"customer city\" updated retroactively on historical orders",
+          consequence:
+            "Historical reports change every time a customer moves. Last quarter's \"revenue by city\" silently becomes a different number. Audit trail destroyed.",
+          de_catches_it:
+            "Freeze denormalized attributes at event time. SCD Type 2 in the dimension; copy the *as-of* value onto the fact row.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "normalization-vs-denormalization",
+    sort_order: 3,
+    type: "dimensions",
+    payload: {
+      title: "When to pick what",
+      intro: "Most mature stacks use both — normalized at the integration layer (bronze/silver), denormalized at the consumption layer (gold).",
+      items: [
+        {
+          name: "OLTP workload (many writes, transactional consistency)",
+          description: "Stay highly normalized — 3NF or beyond. Update anomalies are the dominant risk.",
+        },
+        {
+          name: "OLAP / BI workload (many reads, complex queries)",
+          description: "Denormalize. Joins at scale dominate cost; the redundancy is safe and compresses.",
+        },
+        {
+          name: "Mixed workload",
+          description: "Use medallion: bronze/silver normalized for fidelity, gold denormalized for consumption.",
+        },
+        {
+          name: "Real-time event aggregation",
+          description: "Denormalize aggressively at ingestion — joining a hot fact stream against a dim is too slow.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "normalization-vs-denormalization",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "Your analytics warehouse has a fact_sales table with a denormalized customer_city column. A customer moves from Providence to Boston. What should happen to their old order rows?",
+      options: [
+        { id: "a", text: "Update them all to \"Boston\" so the customer record is consistent.", correct: false },
+        {
+          id: "b",
+          text: "Leave them alone. The city is frozen at order time — that's the historical truth. New orders get \"Boston\".",
+          correct: true,
+        },
+        { id: "c", text: "Delete the old orders and re-ingest them.", correct: false },
+        { id: "d", text: "Add a new column for `customer_current_city`.", correct: false },
+      ],
+      explanation:
+        "The point of denormalizing the city onto the fact is that analytical data is *append-only history*. The old orders shipped to Providence — that's the actual fact. \"Revenue by city\" should still attribute that revenue to Providence forever. This is exactly why denormalization works in OLAP but would be a disaster in OLTP — analytical data doesn't update.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // dimensional-modeling
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "dimensional-modeling",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "Facts vs dimensions",
+      left_label: "Fact (the verb)",
+      right_label: "Dimension (the noun)",
+      pairs: [
+        { left: "An event that happened (sale, click, shipment)", right: "Context about an entity (customer, product, store)" },
+        { left: "Tall and thin: billions of rows, few columns", right: "Short and wide: thousands of rows, many descriptive columns" },
+        { left: "Append-only, immutable", right: "Slowly changing (Type 1/2/3 updates)" },
+        { left: "Holds numeric measures (quantity, revenue) + FKs", right: "Holds attributes you filter and group by" },
+        { left: "Aggregated with SUM, COUNT, AVG", right: "Joined for context; used in WHERE and GROUP BY" },
+      ],
+    },
+  },
+  {
+    concept_slug: "dimensional-modeling",
+    sort_order: 2,
+    type: "dimensions",
+    payload: {
+      title: "Anatomy of a dimensional model",
+      intro: "The pieces and their roles.",
+      items: [
+        {
+          name: "Star schema",
+          description: "One fact table in the center, surrounded by its dimensions — each dimension joined directly to the fact via a foreign key. The dominant analytical layout because queries map cleanly onto it.",
+          swe_parallel: "An aggregate root with reference data hanging off it",
+        },
+        {
+          name: "Snowflake schema",
+          description: "A star where dimensions are further normalized into sub-tables. More joins, mostly out of favor now that storage is cheap.",
+        },
+        {
+          name: "Conformed dimension",
+          description: "A single \"customer\" or \"date\" dimension shared across multiple fact tables (sales, support tickets, web sessions). Lets you compare metrics from different business processes directly.",
+          swe_parallel: "An interface defined once and reused — DRY for reference data",
+        },
+        {
+          name: "Surrogate key",
+          description: "Integer PK that replaces (or supplements) a natural key. Cheap to join on, stable across natural-key changes, and lets SCD Type 2 use a different surrogate key per version.",
+        },
+        {
+          name: "Degenerate dimension",
+          description: "A dimension attribute that lives directly on the fact table because it has no other attributes worth a dimension of its own — e.g., `order_id` on `fact_line_item`.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "dimensional-modeling",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "Signs your dimensional model is broken",
+      items: [
+        {
+          scenario: "Two teams have different \"customer\" dimensions with subtly different definitions",
+          consequence:
+            "Sales and Support both report customer counts that don't match. Every cross-functional review devolves into definition arguments.",
+          de_catches_it:
+            "Conformed dimensions: define \"customer\" once, share the same dim_customer table across all fact tables.",
+        },
+        {
+          scenario: "A measure (\"customer lifetime value\") shows up as a column on a dimension",
+          consequence:
+            "It gets stale instantly — LTV changes with every order, but the dimension only updates on customer profile changes.",
+          de_catches_it:
+            "Measures belong on facts (or are derived from them). Dimensions hold *descriptive* attributes that don't change with every event.",
+        },
+        {
+          scenario: "Fact table has 80 columns and growing",
+          consequence:
+            "It's actually multiple grains shoved together — \"order header\" mixed with \"line item.\" Aggregations double-count anything not at the smallest grain.",
+          de_catches_it:
+            "Split into separate fact tables, each at a single declared grain. Or pick the lowest grain and aggregate up.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "dimensional-modeling",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "You're modeling e-commerce data. Which of these belongs on the FACT table vs a DIMENSION table?",
+      options: [
+        { id: "a", text: "`order_revenue` → dimension; `product_name` → fact", correct: false },
+        {
+          id: "b",
+          text: "`order_revenue` → fact (numeric measure); `product_name` → dimension (descriptive context)",
+          correct: true,
+        },
+        { id: "c", text: "Both belong on the same table — denormalization eliminates the distinction.", correct: false },
+        { id: "d", text: "Both belong on dimensions; facts only have IDs.", correct: false },
+      ],
+      explanation:
+        "Numeric measures you'll SUM, AVG, COUNT go on the fact (revenue, quantity, duration). Descriptive attributes you'll filter and GROUP BY go on dimensions (product name, category, customer segment). The Kimball grammar — `SUM(facts) GROUP BY dimensions` — only works if you keep the split clean.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // grain-is-everything
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "grain-is-everything",
+    sort_order: 1,
+    type: "failure_catalog",
+    payload: {
+      title: "Grain mistakes that silently corrupt every aggregation",
+      items: [
+        {
+          scenario: "Analyst assumes one row per order; table is actually one row per line item",
+          consequence:
+            "COUNT(*) and SUM(revenue) inflated by average lines-per-order (~3×). Every \"daily orders\" dashboard is wrong; nothing errors.",
+          de_catches_it:
+            "Uniqueness test on the assumed grain key. Declare the grain in a comment at the top of the model.",
+        },
+        {
+          scenario: "Fact table mixes order-level and shipment-level rows (\"one row per order, OR one row per shipment if there are multiple shipments\")",
+          consequence:
+            "Orders with split shipments are double-counted; orders with single shipments are correctly counted. No consistent multiplier; analysts can't even apply a correction factor.",
+          de_catches_it:
+            "Split into two fact tables, each at a single grain. Resist the urge to \"combine for convenience.\"",
+        },
+        {
+          scenario: "\"Daily snapshot\" fact table with no enforced uniqueness on (account_id, date)",
+          consequence:
+            "Late reprocessing inserts a duplicate row for some days. The snapshot shows two values for the same day; metrics double-count.",
+          de_catches_it:
+            "Uniqueness constraint or post-load test on the declared grain key. Idempotent loads (MERGE on grain key, not INSERT).",
+        },
+        {
+          scenario: "Fact table joins to a dimension at the wrong grain, fanning out one-to-many",
+          consequence:
+            "Pre-join row count: 1M. Post-join: 4M. Every downstream SUM is multiplied by the fanout factor.",
+          de_catches_it:
+            "Row-count assertion immediately after each join. Cardinality test on the join key in the dimension.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "grain-is-everything",
+    sort_order: 2,
+    type: "comparison",
+    payload: {
+      title: "Explicit vs implicit grain",
+      left_label: "Implicit (the bug factory)",
+      right_label: "Explicit (the defensive default)",
+      pairs: [
+        {
+          left: "\"fact_orders\" — but is it one row per order? per line item? per shipment?",
+          right: "Comment at top of model: \"Grain: one row per order line item.\"",
+        },
+        {
+          left: "No uniqueness constraint or test on any column combination",
+          right: "Uniqueness test on the natural key for the declared grain",
+        },
+        {
+          left: "Analysts discover the grain by running queries and being surprised",
+          right: "Grain is in the table doc, the dbt model, and the data catalog",
+        },
+        {
+          left: "Joins to dimensions might fan out — no one knows in advance",
+          right: "Cardinality of each join verified at load time",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "grain-is-everything",
+    sort_order: 3,
+    type: "dimensions",
+    payload: {
+      title: "Three common fact-table grain types",
+      intro: "Most fact tables are one of these three shapes. Pick before you write the first column.",
+      items: [
+        {
+          name: "Transactional",
+          description: "One row per discrete event (sale, click, payment). Append-only. Highest volume, most common shape.",
+        },
+        {
+          name: "Periodic snapshot",
+          description: "One row per (entity, time period) — e.g., daily account balance. Captures state at regular intervals even when nothing happens.",
+        },
+        {
+          name: "Accumulating snapshot",
+          description: "One row per long-running process (e.g., one row per loan application, updated as it moves through stages). Mutable in a controlled way — rare in pure dimensional modeling.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "grain-is-everything",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "Your team is building `fact_sales`. The team lead says \"one row per customer per month, summarizing their orders.\" Which grain type is that, and what's the *first* test you should add?",
+      options: [
+        { id: "a", text: "Transactional grain; test that `order_id` is unique.", correct: false },
+        {
+          id: "b",
+          text: "Periodic snapshot grain; test that `(customer_id, month)` is unique.",
+          correct: true,
+        },
+        { id: "c", text: "Accumulating snapshot grain; test that `customer_id` is unique.", correct: false },
+        { id: "d", text: "Grain doesn't matter; just sum the revenue.", correct: false },
+      ],
+      explanation:
+        "\"One row per customer per month\" is a periodic snapshot (state at a regular interval). The natural key for the declared grain is `(customer_id, month)` — and the first test is uniqueness on that combination. If it's not unique, your monthly totals double-count whenever the load runs twice. Declaring the grain and asserting it is the whole defense.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // slowly-changing-dimensions
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "slowly-changing-dimensions",
+    sort_order: 1,
+    type: "dimensions",
+    payload: {
+      title: "The SCD types — what each one does to history",
+      intro: "Types 1 and 2 are nearly all of practice. 3 and 6 exist; learn them later.",
+      items: [
+        {
+          name: "Type 1 — Overwrite",
+          description: "Replace the old value in place. History is gone. Fine for correcting typos where the past doesn't matter.",
+          swe_parallel: "Git force-push: history overwritten, no audit trail",
+        },
+        {
+          name: "Type 2 — Insert new version",
+          description: "Expire the old row (set `valid_to`), insert a new row with a new surrogate key, `valid_from = now()`, `valid_to = NULL`, `is_current = true`. Old versions stay queryable.",
+          swe_parallel: "Git commit: old version stays, new version added, surrogate key = commit hash",
+        },
+        {
+          name: "Type 3 — Previous value column",
+          description: "Add a \"previous_X\" column alongside the current one. Only the most recent change is tracked. Rare in practice.",
+        },
+        {
+          name: "Type 6 — Hybrid",
+          description: "Combination of 1, 2, and 3. Keeps versioned history AND a current-value column on the fact. Useful when you need both as-of and current attribution.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "slowly-changing-dimensions",
+    sort_order: 2,
+    type: "comparison",
+    payload: {
+      title: "App database vs SCD Type 2",
+      left_label: "App database (mutable, present-tense)",
+      right_label: "SCD Type 2 (immutable, historical)",
+      pairs: [
+        { left: "`UPDATE customer SET city = 'Boston' WHERE id = 100`", right: "Mark old row `valid_to = now()`; INSERT new row with new surrogate key" },
+        { left: "Answers: \"what is true now?\"", right: "Answers: \"what was true on date X?\"" },
+        { left: "Foreign keys point to the live row", right: "Foreign keys (in fact rows) point to a specific version of the row" },
+        { left: "Old value is gone after the update", right: "Old version stays queryable forever" },
+        { left: "Reports always reflect current attributes", right: "Reports reflect attributes as-of the event date" },
+      ],
+    },
+  },
+  {
+    concept_slug: "slowly-changing-dimensions",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "What Type 1 (overwrite) silently destroys",
+      items: [
+        {
+          scenario: "Sales rep is promoted from \"Junior\" to \"Senior\" — Type 1 overwrite of `dim_employee.title`",
+          consequence:
+            "Last year's sales reports now show all their previous-year wins under the new title. \"Junior rep performance trend\" silently changes.",
+          de_catches_it:
+            "Type 2: keep the old version with `valid_to`. Fact rows from when they were Junior reference the Junior version.",
+        },
+        {
+          scenario: "Product is recategorized from \"Beverages\" to \"Snacks\" — Type 1 overwrite",
+          consequence:
+            "Historical \"Beverages revenue\" drops as those sales now count toward \"Snacks.\" Looks like a sudden business shift; it's a categorization change.",
+          de_catches_it:
+            "Type 2: the category in effect at the time of sale is preserved. Year-over-year comparisons stay meaningful.",
+        },
+        {
+          scenario: "Customer's account manager changes mid-quarter — Type 1 overwrite",
+          consequence:
+            "Old account manager loses credit for deals they closed in earlier quarters. Compensation calculations break retroactively.",
+          de_catches_it:
+            "Type 2: each deal's fact row points to the account manager assigned at the time. Compensation reports stay accurate.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "slowly-changing-dimensions",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "An analyst asks: \"why does the revenue for a year-ago customer's home state change every time they relocate?\" What's the underlying issue?",
+      options: [
+        { id: "a", text: "The fact table is querying the wrong measure column.", correct: false },
+        {
+          id: "b",
+          text: "The dimension is using SCD Type 1 (overwrite), so old fact rows resolve the customer's state through the dimension's *current* state — not the state at order time. Need Type 2.",
+          correct: true,
+        },
+        { id: "c", text: "The dimension was deleted and rebuilt.", correct: false },
+        { id: "d", text: "The OLAP engine isn't compressing the column correctly.", correct: false },
+      ],
+      explanation:
+        "Classic Type 1 bug. When historical orders join through a Type 1 dimension, they always pick up the *current* attribute value, not the one in effect at the time. The fix is Type 2: keep every version, and the fact row's foreign key points to the surrogate key of the version that was current when the event happened. This is how analytical models achieve point-in-time correctness.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // oltp-vs-olap
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "oltp-vs-olap",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "Row storage vs column storage",
+      left_label: "OLTP (row-oriented)",
+      right_label: "OLAP (column-oriented)",
+      pairs: [
+        { left: "Each row's fields stored contiguously (array-of-structs)", right: "Each column stored contiguously, often as its own file (struct-of-arrays)" },
+        { left: "Fast for: `SELECT * WHERE id = 123`", right: "Fast for: `SELECT SUM(revenue) GROUP BY region`" },
+        { left: "Reads must drag all 50 fields off disk per matching row", right: "Reads pull only the 2 columns the query touches" },
+        { left: "ACID transactions, indexes for point lookups", right: "Append-mostly, partitioning + clustering for pruning" },
+        { left: "Postgres, MySQL, Oracle, SQL Server", right: "Snowflake, BigQuery, ClickHouse, DuckDB, Redshift" },
+      ],
+    },
+  },
+  {
+    concept_slug: "oltp-vs-olap",
+    sort_order: 2,
+    type: "dimensions",
+    payload: {
+      title: "Why columnar wins for analytics — three compounding reasons",
+      intro: "Each reason alone is significant. Together they produce orders of magnitude.",
+      items: [
+        {
+          name: "Read only the columns you need",
+          description: "A query touching 2 of 50 columns reads ~4% of the table's bytes. Row storage would scan all 50 fields per row just to discard 48.",
+        },
+        {
+          name: "Compression on homogeneous data",
+          description: "A single column is one type, often low cardinality and often sorted. Run-length and dictionary encoding shrink it dramatically — sometimes 10–50× smaller on disk than the equivalent row layout.",
+        },
+        {
+          name: "Vectorized / SIMD execution",
+          description: "A contiguous column is perfect for SIMD instructions — the CPU can sum a chunk of values per cycle instead of one. Modern OLAP engines exploit this end-to-end.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "oltp-vs-olap",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "Wrong-engine-for-workload disasters",
+      items: [
+        {
+          scenario: "Running an analytical dashboard against the production OLTP database",
+          consequence:
+            "Long-running scans contend with transactional locks. Latency for real users spikes. Engineers blame \"slow Postgres\" when the workload is mismatched.",
+          de_catches_it:
+            "Replicate to an OLAP warehouse. The analytical workload doesn't belong on row storage; the OLTP workload doesn't belong on columnar storage.",
+        },
+        {
+          scenario: "Doing single-row UPDATEs against a columnar warehouse table",
+          consequence:
+            "Each UPDATE touches every column's file. Operations that take milliseconds in OLTP take minutes in OLAP. The team thinks the warehouse is \"slow.\"",
+          de_catches_it:
+            "Warehouses are append-mostly by design. Use MERGE on batch loads; don't trickle individual UPDATEs.",
+        },
+        {
+          scenario: "SELECT * across a billion-row columnar table",
+          consequence:
+            "You've defeated the whole point of columnar — pulling every column's file off disk and reassembling rows. The query runs 50× slower than it would on a relevant subset.",
+          de_catches_it:
+            "Always project only the columns you need. `SELECT *` is an OLTP habit that ruins OLAP performance.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "oltp-vs-olap",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "You're picking a database for two workloads: (A) a customer-facing API that does point-lookups by user_id and writes a few rows per request; (B) an analytics dashboard that aggregates billions of clickstream events. Which assignment is right?",
+      options: [
+        { id: "a", text: "Both on Postgres — fewer moving parts.", correct: false },
+        { id: "b", text: "Both on Snowflake — modern is better.", correct: false },
+        {
+          id: "c",
+          text: "(A) on Postgres (row-oriented, ACID, indexed point lookups). (B) on Snowflake/BigQuery/DuckDB (column-oriented, columnar scans, vectorized).",
+          correct: true,
+        },
+        { id: "d", text: "(A) on DuckDB; (B) on MySQL.", correct: false },
+      ],
+      explanation:
+        "OLTP workloads (small concurrent transactions, point lookups) belong on row-oriented databases — Postgres, MySQL. OLAP workloads (huge scans, aggregations across many rows) belong on column-oriented warehouses — Snowflake, BigQuery, ClickHouse, DuckDB. Picking the right engine for the workload is one of the highest-leverage architectural decisions in DE — the order-of-magnitude wins come from the storage layout matching the query pattern.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // medallion-architecture
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "medallion-architecture",
+    sort_order: 1,
+    type: "dimensions",
+    payload: {
+      title: "The three layers and what each one owns",
+      intro: "Each layer has one job and a clear contract with the next.",
+      items: [
+        {
+          name: "Bronze",
+          description: "Raw, immutable, append-only. Whatever the source threw at you, captured untouched. Source of truth for replay.",
+          swe_parallel: "Raw input / adapter layer (the JSON the API returned, exactly as it arrived)",
+        },
+        {
+          name: "Silver",
+          description: "Cleaned, typed, deduplicated, conformed. SCD Type 2 lives here. Validated and queryable as a canonical domain model.",
+          swe_parallel: "Domain / business-logic layer (the cleansed entities your business reasons about)",
+        },
+        {
+          name: "Gold",
+          description: "Business-level product — fact and dimension tables, pre-aggregated metrics, materialized views. What dashboards and ML features actually consume.",
+          swe_parallel: "Presentation / API layer (the endpoints consumers integrate against)",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "medallion-architecture",
+    sort_order: 2,
+    type: "comparison",
+    payload: {
+      title: "SWE layered architecture ↔ DE medallion",
+      left_label: "SWE app",
+      right_label: "DE pipeline",
+      pairs: [
+        { left: "Raw HTTP input, deserialized to DTOs", right: "Bronze: raw events landed as-is" },
+        { left: "Domain models, validated and consistent", right: "Silver: cleansed canonical models, SCD applied" },
+        { left: "API responses / view models", right: "Gold: fact tables, dimensional models, aggregates" },
+        { left: "Each layer has one responsibility", right: "Each layer has one responsibility" },
+        { left: "Lower layers don't know about upper layers", right: "Bronze doesn't know about silver or gold" },
+        { left: "You can swap presentation without touching the domain", right: "You can rebuild silver and gold from bronze when logic changes" },
+      ],
+    },
+  },
+  {
+    concept_slug: "medallion-architecture",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "Common medallion violations",
+      items: [
+        {
+          scenario: "Mutating the bronze layer to \"clean up\" obviously-wrong rows",
+          consequence:
+            "You've destroyed the source of truth. The next time you need to reproduce a historical report, you can't — bronze no longer reflects what the upstream actually sent.",
+          de_catches_it:
+            "Bronze is immutable. Filter or correct in silver, where the cleaning rules are visible and reversible.",
+        },
+        {
+          scenario: "Dashboards query silver directly, skipping gold",
+          consequence:
+            "Each dashboard duplicates the same aggregation logic. Metrics drift between dashboards over time. Performance is slower than it needs to be.",
+          de_catches_it:
+            "Gold is the consumption contract. Pre-aggregate there; dashboards become thin and consistent.",
+        },
+        {
+          scenario: "Silver is rebuilt by reading from another silver table (cross-layer reference)",
+          consequence:
+            "Circular dependency. Recalculating one silver table requires another silver table that depended on the first. Builds become brittle and order-dependent.",
+          de_catches_it:
+            "Layers only reference downward (silver reads from bronze, gold reads from silver). No upward or sideways references between layers.",
+        },
+        {
+          scenario: "Bug in silver-layer dedup logic. You write a one-off UPDATE script to fix gold directly.",
+          consequence:
+            "You've broken the reproducibility chain. Re-running the pipeline doesn't reach the same end state — gold now depends on a script no one tracks.",
+          de_catches_it:
+            "Fix silver, then rebuild gold from silver. The whole point of the layering is that you *can* do this.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "medallion-architecture",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "You discover that your silver-layer customer deduplication logic has been wrong for 3 months — duplicates are being kept instead of merged. The bug is in the silver SQL. What's the medallion-correct recovery?",
+      options: [
+        { id: "a", text: "Write an UPDATE script that fixes the affected silver and gold rows in place.", correct: false },
+        {
+          id: "b",
+          text: "Fix the silver SQL; drop and rebuild silver and gold for the affected 3-month window from the immutable bronze layer.",
+          correct: true,
+        },
+        { id: "c", text: "Re-ingest the source data from the API for the affected period.", correct: false },
+        { id: "d", text: "Add a footnote to the affected dashboards and move on.", correct: false },
+      ],
+      explanation:
+        "The reason bronze is kept immutable and append-only is *exactly* this: silver and gold are derived, so they're rebuildable. Fix the silver code, drop and rebuild silver from bronze, drop and rebuild gold from silver. No source re-ingestion needed (bronze still has the truth); no in-place patching needed (which would break reproducibility). This is the layered-architecture payoff applied to data.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // data-vault
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "data-vault",
+    sort_order: 1,
+    type: "dimensions",
+    payload: {
+      title: "The three Data Vault primitives",
+      intro: "Everything in a Data Vault model decomposes into one of these three shapes.",
+      items: [
+        {
+          name: "Hub",
+          description: "Stable business keys — the durable identity of a concept. `hub_customer` holds `customer_id` and the timestamp it first appeared. Few columns, append-only.",
+          swe_parallel: "Aggregate root — the stable identity of an entity",
+        },
+        {
+          name: "Link",
+          description: "Relationships between hubs. `link_customer_order` records that a customer placed an order, with timestamps. Append-only; relationships never get \"updated.\"",
+          swe_parallel: "Association table in a many-to-many relationship",
+        },
+        {
+          name: "Satellite",
+          description: "Descriptive attributes plus their full timestamped history. `sat_customer_address` holds address, city, state, with `load_ts` per version. Append-only — every change is a new row.",
+          swe_parallel: "Versioned, append-only attribute bag — event sourcing for descriptive data",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "data-vault",
+    sort_order: 2,
+    type: "comparison",
+    payload: {
+      title: "Data Vault vs dimensional modeling — different layers, different jobs",
+      left_label: "Data Vault (integration layer)",
+      right_label: "Dimensional (consumption layer)",
+      pairs: [
+        { left: "Optimizes for integration, history, adaptability", right: "Optimizes for consumption and query ergonomics" },
+        { left: "Highly normalized; hubs / links / satellites", right: "Denormalized; facts surrounded by dimensions" },
+        { left: "Insert-only; every attribute change is a new row", right: "SCD Type 2 dimensions; new versions inserted, old expired" },
+        { left: "Adding a new source means adding a new hub or satellite", right: "Adding a new source often means reshaping the star schema" },
+        { left: "Hard to query directly; analysts won't write SQL against it", right: "Built for analysts; queries map to business questions" },
+        { left: "Often sits underneath dimensional, as the integration tier", right: "Often built on top of Data Vault for user consumption" },
+      ],
+    },
+  },
+  {
+    concept_slug: "data-vault",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "When Data Vault is the wrong tool",
+      items: [
+        {
+          scenario: "Small team, 2 source systems, simple business model",
+          consequence:
+            "Data Vault adds significant upfront modeling complexity. Hubs, links, satellites for everything multiplies the number of tables 3–5×. Queries become unwieldy.",
+          de_catches_it:
+            "Use straight dimensional modeling (or even just denormalized wide tables) until the source-system complexity actually demands the abstraction.",
+        },
+        {
+          scenario: "Team exposes Data Vault tables directly to analysts",
+          consequence:
+            "Analysts have to join 4–6 hubs/links/sats to answer a question that would be one join in a star schema. Productivity craters; they start building shadow copies.",
+          de_catches_it:
+            "Vault is an integration tier, not a consumption tier. Build a dimensional layer on top; analysts query the stars.",
+        },
+        {
+          scenario: "Satellites updated in place instead of insert-only",
+          consequence:
+            "You've destroyed the audit trail Data Vault exists to provide. Every change to a descriptive attribute used to be a new row; now they're being overwritten.",
+          de_catches_it:
+            "Satellites are append-only by definition. Every attribute change is a new row with a new `load_ts`. The previous row stays.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "data-vault",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "You're modeling customer data in Data Vault. The customer's `customer_id` is the business key; their `address` changes occasionally; they place many `orders`. How do you decompose this?",
+      options: [
+        { id: "a", text: "One table per entity — `customer`, `address`, `order` — with foreign keys.", correct: false },
+        {
+          id: "b",
+          text: "`hub_customer` (customer_id), `sat_customer_address` (address history, append-only), `hub_order` (order_id), `link_customer_order` (customer_id ↔ order_id).",
+          correct: true,
+        },
+        { id: "c", text: "A single denormalized fact table with customer attributes baked in.", correct: false },
+        { id: "d", text: "A star schema with `dim_customer` (SCD Type 2) and `fact_orders`.", correct: false },
+      ],
+      explanation:
+        "Data Vault breaks each concept into its three primitives. Stable identity → hub (`hub_customer`, `hub_order`). Relationship → link (`link_customer_order`). Versioned attributes → satellite (`sat_customer_address` — every address change is a new row). This is the integration-layer model. To make it queryable for analysts, you'd build a star schema *on top* — that's option (d), which is the consumption-layer model. Both can coexist in a mature warehouse.",
+    },
+  },
 ];

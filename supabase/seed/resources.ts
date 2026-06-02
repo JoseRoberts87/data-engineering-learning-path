@@ -128,4 +128,85 @@ export const resources: ResourceSeed[] = [
     url: "https://dataintensive.net/",
     resource_type: "book",
   },
+
+  // ── Phase 2 ──────────────────────────────────────────
+  // normalization-vs-denormalization
+  {
+    concept_slug: "normalization-vs-denormalization",
+    title: "Database normalization (Wikipedia overview, 1NF–BCNF)",
+    url: "https://en.wikipedia.org/wiki/Database_normalization",
+    resource_type: "article",
+  },
+  {
+    concept_slug: "normalization-vs-denormalization",
+    title: "dbt — How to structure marts (denormalization patterns)",
+    url: "https://docs.getdbt.com/best-practices/how-we-structure/4-marts",
+    resource_type: "docs",
+  },
+
+  // dimensional-modeling
+  {
+    concept_slug: "dimensional-modeling",
+    title: "Kimball Group — Dimensional modeling techniques",
+    url: "https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/",
+    resource_type: "article",
+  },
+  {
+    concept_slug: "dimensional-modeling",
+    title: "dbt — Modeling and marts structure",
+    url: "https://docs.getdbt.com/best-practices/how-we-structure/4-marts",
+    resource_type: "docs",
+  },
+
+  // grain-is-everything
+  {
+    concept_slug: "grain-is-everything",
+    title: "Kimball — Declare the grain (one of the four-step design process)",
+    url: "https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/four-step-dimensional-design-process/",
+    resource_type: "article",
+  },
+
+  // slowly-changing-dimensions
+  {
+    concept_slug: "slowly-changing-dimensions",
+    title: "Kimball — Slowly Changing Dimension (Type 2)",
+    url: "https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/type-2/",
+    resource_type: "article",
+  },
+  {
+    concept_slug: "slowly-changing-dimensions",
+    title: "dbt — Snapshots (SCD Type 2 implementation)",
+    url: "https://docs.getdbt.com/docs/build/snapshots",
+    resource_type: "docs",
+  },
+
+  // oltp-vs-olap
+  {
+    concept_slug: "oltp-vs-olap",
+    title: "DuckDB — Why DuckDB? (clear primer on columnar OLAP)",
+    url: "https://duckdb.org/why_duckdb",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "oltp-vs-olap",
+    title: "Designing Data-Intensive Applications — Ch. 3 (Storage and Retrieval)",
+    url: "https://dataintensive.net/",
+    resource_type: "book",
+  },
+
+  // medallion-architecture
+  {
+    concept_slug: "medallion-architecture",
+    title: "Databricks — Medallion architecture (glossary)",
+    url: "https://www.databricks.com/glossary/medallion-architecture",
+    resource_type: "article",
+  },
+
+  // data-vault
+  {
+    concept_slug: "data-vault",
+    title: "Data Vault 2.0 — overview (Dan Linstedt's reference site)",
+    url: "https://danlinstedt.com/solutions-2/data-vault-basics/",
+    resource_type: "article",
+  },
 ];

@@ -258,33 +258,169 @@ export const questions: QuestionSeed[] = [
   // ── Phase 2 ──────────────────────────────────────────
   {
     checkpoint_slug: "checkpoint-data-modeling-fundamentals",
-    prompt: "A dashboard aggregates millions of rows across 6 normalized tables to compute a daily KPI. It's slow. What's the typical first move?",
+    prompt: "Why is denormalizing a warehouse fact table safe in ways it would be dangerous in an OLTP system?",
     options: [
-      { id: "a", text: "Add more indexes to the source tables.", correct: false },
+      { id: "a", text: "Warehouses don't enforce constraints, so duplication doesn't matter.", correct: false },
       {
         id: "b",
-        text: "Move to a column-oriented (OLAP) store and denormalize the metrics into a fact table.",
+        text: "Analytical data is largely append-only — you're recording history, not maintaining current state — so the update anomalies DRY exists to prevent don't apply.",
         correct: true,
       },
-      { id: "c", text: "Cache the dashboard result in Redis.", correct: false },
-      { id: "d", text: "Switch to row-oriented storage.", correct: false },
+      { id: "c", text: "Disk is cheaper in warehouses than in OLTP databases.", correct: false },
+      { id: "d", text: "Columnar storage automatically deduplicates rows.", correct: false },
     ],
     explanation:
-      "For scan-heavy analytics, denormalize into a fact table in a column-oriented store. Joins at scan time over millions of rows are the bottleneck; pre-computing them into wide rows trades storage for query latency.",
+      "DRY's whole payoff is avoiding update anomalies — inconsistencies that arise when duplicated mutable data drifts. Analytical fact tables are immutable history: you rarely update a past order, and you often *want* the customer's city frozen as it was at order time. Denormalization aligns with that immutability — the redundancy that would corrupt an OLTP system is harmless here.",
     sort_order: 1,
   },
   {
     checkpoint_slug: "checkpoint-data-modeling-fundamentals",
-    prompt: "Which workload is OLTP better suited for than OLAP?",
+    prompt: "You're designing a fact table for an e-commerce business. In a dimensional model, which of these should be a **fact** and which should be a **dimension**?",
     options: [
-      { id: "a", text: "Computing the 90-day moving average of sales across all stores.", correct: false },
-      { id: "b", text: "Fetching a single customer's open shopping cart by user_id.", correct: true },
-      { id: "c", text: "Aggregating clickstream events by hour.", correct: false },
-      { id: "d", text: "Re-deriving year-over-year revenue per region.", correct: false },
+      { id: "a", text: "`order_revenue` is a dimension; `customer_segment` is a fact.", correct: false },
+      {
+        id: "b",
+        text: "`order_revenue` is a fact (measurable event-level value); `customer_segment` is a dimension (descriptive context).",
+        correct: true,
+      },
+      { id: "c", text: "Both should be facts.", correct: false },
+      { id: "d", text: "Both should be dimensions.", correct: false },
     ],
     explanation:
-      "OLTP excels at point lookups and small read/write transactions — fetching, updating, deleting individual rows by primary key. OLAP excels at wide aggregations over many rows but few columns.",
+      "Facts are the verbs — measurable, additive, event-level values you'll sum or average (revenue, quantity, duration). Dimensions are the nouns and adjectives that describe a fact — who, what, where, when, why (customer segment, product category, store, date). The Kimball grammar: SUM(facts) GROUP BY dimensions.",
     sort_order: 2,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-modeling-fundamentals",
+    prompt: "An analyst aggregates a fact table assuming one row per order, but the table is actually one row per *line item* (multiple lines per order). What goes wrong?",
+    options: [
+      { id: "a", text: "Nothing — the SUM just adds them up correctly.", correct: false },
+      {
+        id: "b",
+        text: "`COUNT(*)` and any `SUM(revenue)` are inflated by the average lines-per-order multiplier. Every dashboard built on it is silently wrong.",
+        correct: true,
+      },
+      { id: "c", text: "The query crashes because of a schema mismatch.", correct: false },
+      { id: "d", text: "Only the row count is wrong; revenue is fine.", correct: false },
+    ],
+    explanation:
+      "Mistaking the grain is the canonical dimensional-modeling failure. \"One row per order\" vs \"one row per line item\" multiplies your counts and your revenue by the average lines-per-order — and nothing errors, because the data is structurally fine. The defense: write the grain as a single sentence at the top of every fact-table definition, and assert uniqueness on the grain's natural key.",
+    sort_order: 3,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-modeling-fundamentals",
+    prompt: "A customer's billing address changed last month. Reporting needs to show *historical* orders shipped to the old address but *new* orders going to the new one. What SCD strategy does this require?",
+    options: [
+      { id: "a", text: "SCD Type 1 — overwrite the old address.", correct: false },
+      {
+        id: "b",
+        text: "SCD Type 2 — expire the old dimension row, insert a new version with validity ranges, and tie fact rows to the version that was current when the event happened.",
+        correct: true,
+      },
+      { id: "c", text: "Just store a timestamp on each order.", correct: false },
+      { id: "d", text: "Recompute all reports against the current address.", correct: false },
+    ],
+    explanation:
+      "Type 1 (overwrite) loses history — Old orders would appear to ship to the new address. Type 2 keeps every version of the dimension with `valid_from` / `valid_to`, and each fact row references the surrogate key of the version that was current at the order date. That's how analytical models achieve point-in-time correctness — the same way git keeps every commit, not just HEAD.",
+    sort_order: 4,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-modeling-fundamentals",
+    prompt: "Which mapping correctly translates a git concept to the equivalent SCD Type 2 concept?",
+    options: [
+      { id: "a", text: "Commit hash → primary key of the dimension table.", correct: false },
+      { id: "b", text: "Commit hash → surrogate key of the dimension version.", correct: true },
+      { id: "c", text: "Commit hash → the fact table's `order_id`.", correct: false },
+      { id: "d", text: "Commit hash → `is_current` flag.", correct: false },
+    ],
+    explanation:
+      "Each new version of a dimension row gets a new surrogate key, exactly like each commit gets a new hash. The natural key (customer_id) stays the same — that's the file path. `valid_from` / `valid_to` are commit timestamps. `is_current = true` is HEAD. The surrogate key is what fact rows reference to pin themselves to a point-in-time version.",
+    sort_order: 5,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-modeling-fundamentals",
+    prompt: "A query reads two columns from a 1-billion-row table. Why does columnar storage outperform row storage by orders of magnitude on this workload?",
+    options: [
+      { id: "a", text: "Columnar storage compresses the data, so total size is smaller.", correct: false },
+      {
+        id: "b",
+        text: "It reads only those two columns from disk instead of every row's full set of fields, the homogeneous column compresses dramatically, AND it's perfect for vectorized/SIMD execution. Three compounding wins.",
+        correct: true,
+      },
+      { id: "c", text: "Columnar storage skips rows that don't match the WHERE clause.", correct: false },
+      { id: "d", text: "Columnar databases run queries in parallel.", correct: false },
+    ],
+    explanation:
+      "Three reasons stack: (1) you read only the two columns you need, not every column of every row; (2) a single column is homogeneous, often low-cardinality and sorted, so it compresses dramatically (run-length, dictionary); (3) a contiguous column is perfect for vectorized/SIMD execution. The same idea as restructuring a hot loop from array-of-structs to struct-of-arrays in systems code.",
+    sort_order: 6,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-modeling-fundamentals",
+    prompt: "In a medallion architecture, you discover a bug in your silver-layer deduplication logic that's been running for a month. What's the recovery path?",
+    options: [
+      { id: "a", text: "Run UPDATE statements against the affected silver rows.", correct: false },
+      {
+        id: "b",
+        text: "Fix the silver-layer code, then rebuild silver and gold from the immutable bronze layer for the affected period.",
+        correct: true,
+      },
+      { id: "c", text: "Re-ingest the source data from the API.", correct: false },
+      { id: "d", text: "Manually patch the gold-layer dashboards.", correct: false },
+    ],
+    explanation:
+      "The whole point of keeping bronze immutable and append-only is that silver and gold are *reprocessable* — they're derived layers. Fix the silver code, drop and rebuild silver (and gold) for the affected window from bronze. This is the same layered-architecture payoff as in software: isolated blast radius, clear contracts between stages, recovery without going back to the source system.",
+    sort_order: 7,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-modeling-fundamentals",
+    prompt: "An enterprise warehouse needs to integrate 20+ source systems, must preserve every historical change for audit, and expects new source systems to be added regularly without disrupting the existing model. Which methodology is purpose-built for this?",
+    options: [
+      { id: "a", text: "Highly normalized 3NF.", correct: false },
+      { id: "b", text: "Star schema with conformed dimensions.", correct: false },
+      {
+        id: "c",
+        text: "Data Vault — hubs (stable business keys), links (relationships), satellites (timestamped attribute history); insert-only and resilient to source change.",
+        correct: true,
+      },
+      { id: "d", text: "Single denormalized wide table.", correct: false },
+    ],
+    explanation:
+      "Data Vault is specifically designed for integration, auditability, and resilience to source change. Hubs hold stable business keys, links capture relationships, satellites are append-only attribute history. Bolting on a new source or attribute doesn't require restructuring the existing model. Dimensional/star is for *consumption* — Vault often sits underneath as the integration layer with star schemas built on top.",
+    sort_order: 8,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-modeling-fundamentals",
+    prompt: "What does *grain* mean in dimensional modeling, and why is it called the most important decision?",
+    options: [
+      { id: "a", text: "The total size of the fact table; bigger grain = more rows.", correct: false },
+      {
+        id: "b",
+        text: "Exactly what one row in the fact table represents (e.g. \"one line item per order per day\"). Picking it wrong silently corrupts every aggregation built on the table.",
+        correct: true,
+      },
+      { id: "c", text: "How fine-grained the partitioning key is.", correct: false },
+      { id: "d", text: "The number of dimensions attached to the fact.", correct: false },
+    ],
+    explanation:
+      "Grain is the contract for the fact table — the precise unit of analysis. Get it wrong and double-counting (or under-counting) creeps in everywhere; queries assume one shape and get another. The discipline is to write the grain as a single sentence at the top of every fact-table definition, before adding any columns, and assert uniqueness on the natural key for that grain.",
+    sort_order: 9,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-modeling-fundamentals",
+    prompt: "Which of these statements about denormalization in an OLAP warehouse is correct?",
+    options: [
+      { id: "a", text: "It's a violation of best practice; modern warehouses don't need it.", correct: false },
+      { id: "b", text: "It's required by columnar storage engines.", correct: false },
+      {
+        id: "c",
+        text: "It trades storage for query speed, and the redundancy is safe because the data is largely append-only (no update anomalies). Columnar compression also makes the duplicated values nearly free to store.",
+        correct: true,
+      },
+      { id: "d", text: "It's only useful for tables under 1 million rows.", correct: false },
+    ],
+    explanation:
+      "Denormalization in analytics is a deliberate, well-grounded trade: more storage in exchange for fewer joins at scan time. It works because (a) the data is immutable history so update anomalies don't apply, and (b) columnar engines compress repeated values dramatically — the city \"Providence\" repeated across a million rows occupies almost nothing. The cost is genuinely small; the read-speed payoff is huge.",
+    sort_order: 10,
   },
 
   // ── Phase 3 ──────────────────────────────────────────

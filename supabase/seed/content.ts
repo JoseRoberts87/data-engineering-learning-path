@@ -166,20 +166,70 @@ export const concepts: ConceptSeed[] = [
     phase_slug: "data-modeling-fundamentals",
     title: "Normalization vs. denormalization",
     description:
-      "Normalization splits data across tables to remove redundancy; denormalization duplicates fields back together so reads don't have to join. Transactional systems lean normalized (cheap to update). Analytical systems lean denormalized (cheap to scan).",
+      "Normalization is DRY applied to data: every fact stored exactly once, so an update touches one place. That's ideal for OLTP — a write-heavy, mutable world. Analytics inverts the economics: a query like \"revenue by city\" joining orders → customers → cities becomes an expensive distributed shuffle at a billion rows. So you denormalize — bake the city directly onto each order row. The redundancy that would be dangerous in a mutable system is harmless here because analytical data is largely append-only — you're recording history, not maintaining current state.",
     swe_analogy:
-      "The DRY principle pulled against query latency. In application code you'd extract a shared module; in an analytics warehouse you'd often inline the fields, because joins at scan time over millions of rows are expensive.",
+      "DRY is a write-time virtue. In code you extract a shared module so a change happens in one place. In analytics the data is immutable history — you often *want* the city frozen as it was at order time, not silently changed when the customer moves. Denormalization aligns with that: redundancy is safe because nothing's being updated.",
     sort_order: 1,
+  },
+  {
+    slug: "dimensional-modeling",
+    phase_slug: "data-modeling-fundamentals",
+    title: "Dimensional modeling",
+    description:
+      "Kimball's approach: separate the world into *facts* (the verbs — measurable events like a sale, a click, a shipment) and *dimensions* (the nouns and adjectives that describe them — which product, which customer, when). Fact tables are tall and thin: billions of rows, few columns, append-only, holding numeric measures plus foreign keys to dimensions. Dimension tables are short and wide: lots of descriptive attributes, fewer rows. One fact table surrounded by its dimensions is a *star schema*. The model is shaped like the questions: \"revenue, sliced by region and month\" is just *aggregate this measure, grouped by these dimensions*.",
+    swe_analogy:
+      "Facts are application logs — high-volume, timestamped events. Dimensions are the metadata about your domain that gives those logs meaning. A *conformed dimension* — \"customer\" defined once and reused across many fact tables — is the interface-defined-once-and-reused principle applied to shared reference data.",
+    sort_order: 2,
+  },
+  {
+    slug: "grain-is-everything",
+    phase_slug: "data-modeling-fundamentals",
+    title: "Grain is everything",
+    description:
+      "The single most important decision in dimensional modeling is *grain* — defining exactly what one row in a fact table represents, before anything else. One order? One line item per order? One daily snapshot per account? Get it wrong and double-counting creeps in everywhere: `SUM(revenue)` is off by a factor of N, every dashboard built on it lies, and you find out at quarter-end during reconciliation. The discipline: write the grain as a single sentence at the top of every fact-table definition, and test that the natural key for that grain is actually unique.",
+    swe_analogy:
+      "The unit of analysis is the type signature of the table. \"This function takes a customer and returns a list of recommendations\" is a clearer contract than \"this function takes some data and returns some other data\" — and the same is true of a fact table. Get the grain explicit and downstream queries write themselves; leave it ambiguous and every join is a guess.",
+    sort_order: 3,
+  },
+  {
+    slug: "slowly-changing-dimensions",
+    phase_slug: "data-modeling-fundamentals",
+    title: "Slowly changing dimensions (SCD)",
+    description:
+      "Dimension attributes drift over time — a customer relocates, a product gets recategorized, a rep changes territory. *How* you handle that change is the SCD type. **Type 1** overwrites the old value: history is lost, fine for typos. **Type 2** expires the old row and inserts a new version with `valid_from` / `valid_to` timestamps, a new surrogate key, and an `is_current` flag — old versions stay queryable. Each fact row references the surrogate key of the dimension version that was current when the event happened, so \"revenue by the customer's city at time of sale\" stays historically accurate even after they move. (Type 3 keeps only a single \"previous value\" column; Type 6 is a hybrid; Types 1 and 2 are nearly all of practice.)",
+    swe_analogy:
+      "Git, with the mapping made exact: Type 1 is a force-push (history overwritten, no audit trail). Type 2 is committing — old row stays expired, new version inserted. Surrogate key = commit hash. `valid_from` / `valid_to` = commit timestamps. `is_current` = HEAD. Type 2 is how analytical databases achieve point-in-time correctness.",
+    sort_order: 4,
   },
   {
     slug: "oltp-vs-olap",
     phase_slug: "data-modeling-fundamentals",
     title: "OLTP vs. OLAP",
     description:
-      "OLTP databases (Postgres, MySQL) store rows together — fast for fetching, updating, and deleting individual records by key. OLAP databases (BigQuery, Snowflake, ClickHouse) store columns together — fast for aggregating a few columns across millions of rows.",
+      "OLTP databases (Postgres, MySQL) are row-oriented — a record's fields are stored contiguously on disk. Optimal for transactional apps: many small concurrent ACID transactions, each touching a few whole rows by primary key. OLAP warehouses (Snowflake, BigQuery, ClickHouse, DuckDB) are column-oriented — each column stored contiguously, often as its own file (Parquet, ORC). Analytical queries scan billions of rows but only touch a handful of columns; columnar reads *only those columns* instead of dragging fifty fields off disk for each row. A homogeneous column also compresses dramatically (run-length, dictionary) and is perfect for vectorized/SIMD execution. The trade-off is the mirror image: columnar storage is terrible at single-row writes, which is why warehouses are append-mostly and batch-loaded.",
     swe_analogy:
-      "Picking the right data structure for the workload — a HashMap vs. a column-oriented array. Same data, very different access patterns and very different cost curves.",
-    sort_order: 2,
+      "Array-of-structs vs struct-of-arrays. OLTP is AoS — optimal for *get-this-one-customer-record*. OLAP is SoA — optimal for *sum-this-column-across-a-billion-records*. Any SWE who's restructured a hot loop from AoS to SoA for cache locality and SIMD already understands why columnar wins for bulk math.",
+    sort_order: 5,
+  },
+  {
+    slug: "medallion-architecture",
+    phase_slug: "data-modeling-fundamentals",
+    title: "Medallion architecture (bronze / silver / gold)",
+    description:
+      "A layering philosophy — separation of concerns applied to the whole pipeline. **Bronze** is raw data landed exactly as it arrived: immutable, append-only, your replayable source of truth. **Silver** is cleaned, typed, deduplicated, conformed — validated and queryable. **Gold** is the business-level product: dimensional models and aggregates that consumers actually use. Each layer has one responsibility and clear contracts between stages. Because bronze is kept immutable, you can rebuild silver and gold from scratch whenever cleaning or business logic changes — the whole pipeline is *reprocessable*.",
+    swe_analogy:
+      "The layered architecture an SWE already knows. Bronze is the raw input/adapter layer (whatever the source threw at you, captured untouched). Silver is the domain/business-logic layer (cleansed canonical models). Gold is the presentation layer (the APIs analysts and dashboards consume). Same payoff: isolated blast radius, explicit contracts, full reprocessability.",
+    sort_order: 6,
+  },
+  {
+    slug: "data-vault",
+    phase_slug: "data-modeling-fundamentals",
+    title: "Data Vault",
+    description:
+      "A modeling methodology you apply *within* the integration layer (roughly the silver tier of an enterprise warehouse). Decomposes everything into three primitives: **Hubs** — stable business keys, the durable identity of a concept (like a customer number). **Links** — the relationships between hubs (customer bought product). **Satellites** — descriptive attributes plus their full timestamped history. Insert-only, highly normalized, optimized for auditability, parallel loading, and resilience to source change: you can bolt on a new source or attribute without restructuring what exists. Data Vault optimizes for *integration, history, adaptability*; dimensional modeling optimizes for *consumption and query ergonomics*. They aren't rivals — Vault often sits underneath as the integration layer, with star schemas built on top for users.",
+    swe_analogy:
+      "Hubs are aggregate roots — stable entity identities. Links are association tables. Satellites are versioned, append-only attribute bags. The whole thing has an event-sourcing character: every change to a descriptive attribute is a new row in a satellite, never an update. The cost is more upfront complexity; the payoff is that source-system changes don't blow up the model.",
+    sort_order: 7,
   },
 
   // Phase 3

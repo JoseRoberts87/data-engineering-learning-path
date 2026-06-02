@@ -43,6 +43,9 @@ yarn-error.log*
 # Override global *.sql for Supabase migrations
 !supabase/migrations/*.sql
 
+# Local-only source material for content authoring (see scrap/README.md)
+scrap/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
