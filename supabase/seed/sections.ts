@@ -2019,4 +2019,1128 @@ export const sections: SectionSeed[] = [
         "Data Vault breaks each concept into its three primitives. Stable identity → hub (`hub_customer`, `hub_order`). Relationship → link (`link_customer_order`). Versioned attributes → satellite (`sat_customer_address` — every address change is a new row). This is the integration-layer model. To make it queryable for analysts, you'd build a star schema *on top* — that's option (d), which is the consumption-layer model. Both can coexist in a mature warehouse.",
     },
   },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // etl-vs-elt
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "etl-vs-elt",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "Where compute lives — ETL vs ELT",
+      left_label: "ETL (transform before load)",
+      right_label: "ELT (load raw, transform in place)",
+      pairs: [
+        { left: "Dedicated processing tier (Spark cluster, ETL server)", right: "Warehouse-native compute (Snowflake, BigQuery)" },
+        { left: "Raw data is often discarded after transform", right: "Raw data is the source of truth (bronze layer)" },
+        { left: "Bug in transform → potentially re-extract from source", right: "Bug in transform → re-derive from raw with corrected SQL" },
+        { left: "PII / sensitive fields can be masked before landing", right: "All fields land first; masking happens in the warehouse" },
+        { left: "Wins for heavy procedural transforms SQL can't express", right: "Wins for set-based relational work (the 80% case)" },
+      ],
+    },
+  },
+  {
+    concept_slug: "etl-vs-elt",
+    sort_order: 2,
+    type: "failure_catalog",
+    payload: {
+      title: "Failure modes specific to each pattern",
+      items: [
+        {
+          scenario: "ETL pipeline transforms data, loads to warehouse, then deletes raw extract. Three months later you find a logic bug.",
+          consequence:
+            "You can't re-derive the correct data — the raw is gone. Either re-extract from a source that may have moved on, or live with the bug.",
+          de_catches_it:
+            "Don't discard raw. ELT lands it permanently; ETL can still keep a raw archive separately. Bronze is your reproducibility insurance.",
+        },
+        {
+          scenario: "ELT pipeline lands raw rows including PII to the warehouse, then transforms/masks downstream.",
+          consequence:
+            "Compliance violation if PII is supposed to never enter the warehouse. Even if you mask it later, the raw rows existed there for some window.",
+          de_catches_it:
+            "ETL or hybrid: transform/mask sensitive fields *before* they land. For non-sensitive fields, ELT is fine.",
+        },
+        {
+          scenario: "Team tries to do complex Python ML feature engineering in dbt SQL because \"we're an ELT shop.\"",
+          consequence:
+            "SQL becomes a 500-line mess of nested CTEs reimplementing string parsing and array logic that Python would handle in 5 lines.",
+          de_catches_it:
+            "Mix patterns. Drop to Spark/Python for the heavy procedural step; land the result; let dbt SQL handle the modeling layer downstream.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "etl-vs-elt",
+    sort_order: 3,
+    type: "dimensions",
+    payload: {
+      title: "Picking the right pattern",
+      intro: "Most mature stacks use both. The question is where each one fits.",
+      items: [
+        {
+          name: "ELT (warehouse-native)",
+          description: "Set-based SQL transforms, joins, aggregations — the 80% case. dbt + Snowflake/BigQuery/DuckDB.",
+        },
+        {
+          name: "ETL (preload transformation)",
+          description: "Compliance/PII handling, heavy procedural logic, unstructured data parsing, ML feature engineering. Spark, Flink, or custom Python.",
+        },
+        {
+          name: "Hybrid",
+          description: "ETL for ingestion + light cleanup; ELT for everything from bronze onward. The common real-world shape.",
+        },
+        {
+          name: "Streaming ELT",
+          description: "Events land on a stream (Kafka), get materialized into the warehouse continuously, transform there. Snowflake streams + tasks, or BigQuery scheduled queries.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "etl-vs-elt",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "Your team needs to bring in Salesforce data, mask credit card numbers (compliance requirement), then build dimensional models on the rest. What's the cleanest pipeline shape?",
+      options: [
+        { id: "a", text: "Pure ELT — land everything raw including credit cards, mask downstream in dbt.", correct: false },
+        {
+          id: "b",
+          text: "Hybrid — ETL the masking step (strip credit cards before landing), then ELT in the warehouse for everything else (dbt).",
+          correct: true,
+        },
+        { id: "c", text: "Pure ETL — Spark for everything, write only the final masked + modeled tables to the warehouse.", correct: false },
+        { id: "d", text: "Don't bring in the data at all — too risky.", correct: false },
+      ],
+      explanation:
+        "Sensitive fields like credit card numbers shouldn't land in the warehouse raw — most compliance regimes (PCI DSS, GDPR) treat data residence as the bar, not what happens downstream. Strip or mask before landing (ETL). Everything else can land raw and transform in-warehouse (ELT). This hybrid is the common real-world shape: ETL for the small set of sensitive things; ELT for the bulk.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // idempotency
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "idempotency",
+    sort_order: 1,
+    type: "dimensions",
+    payload: {
+      title: "Concrete idempotency patterns",
+      intro: "How you actually achieve \"same result no matter how many times this runs.\"",
+      items: [
+        {
+          name: "MERGE on natural key",
+          description: "`MERGE INTO target USING staging ON key = key WHEN MATCHED UPDATE ... WHEN NOT MATCHED INSERT`. New rows insert; existing rows update; reruns are safe.",
+          swe_parallel: "PUT semantics — same body, same end state",
+        },
+        {
+          name: "Partition overwrite",
+          description: "Daily job writes to `date='2026-06-01'` partition; rerun does `DELETE WHERE date='2026-06-01'; INSERT ...`. The cleanest idempotency primitive in batch.",
+          swe_parallel: "Idempotent file write — overwrite the named blob",
+        },
+        {
+          name: "Atomic table swap",
+          description: "Build a `new_table`; rename it into place at the end. All-or-nothing; readers always see a consistent snapshot.",
+          swe_parallel: "Blue-green deploy",
+        },
+        {
+          name: "Hash-based dedup",
+          description: "Compute a deterministic hash per row; insert only if the hash hasn't been seen. Works when natural keys aren't available.",
+          swe_parallel: "Idempotency keys on payment APIs",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "idempotency",
+    sort_order: 2,
+    type: "comparison",
+    payload: {
+      title: "Imperative append vs declarative end-state",
+      left_label: "SWE habit (imperative)",
+      right_label: "DE discipline (declarative end-state)",
+      pairs: [
+        { left: "INSERT a row when this event arrives", right: "MERGE so the end state matches; idempotent reruns" },
+        { left: "Rely on processing order", right: "Operations order-independent, or use deterministic ordering keys" },
+        { left: "Bake `now()` into the row body", right: "Use deterministic timestamps from the source event" },
+        { left: "Random IDs / seeds generated per run", right: "Deterministic IDs from a hash of stable inputs" },
+        { left: "Backfill = surgical row updates and prayer", right: "Backfill = re-run the partition; same end state" },
+      ],
+    },
+  },
+  {
+    concept_slug: "idempotency",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "What non-idempotent transforms produce when re-run",
+      items: [
+        {
+          scenario: "Pipeline appends to a fact table. Orchestrator retries after a transient failure.",
+          consequence:
+            "Rows from the first (partial) run are now duplicated by the second run. Every `SUM` for that partition is inflated. No error.",
+          de_catches_it: "MERGE on the natural key; or partition overwrite for the affected window.",
+        },
+        {
+          scenario: "Row body includes `processed_at = now()`. Rerun stamps a new `processed_at`.",
+          consequence:
+            "Reruns produce *different* data. Downstream joins on `processed_at` fail to match between runs.",
+          de_catches_it: "Use the *event's* timestamp from the source, not the processing time. If you need processing time, store it in a separate column that's not part of the row's identity.",
+        },
+        {
+          scenario: "Transform uses a window function with `ORDER BY (no column)` — non-deterministic ordering across runs.",
+          consequence: "Same input data produces different outputs on each run. Downstream tests randomly fail.",
+          de_catches_it: "Always `ORDER BY` a deterministic key (event_id, source_timestamp + tiebreaker). Determinism is non-negotiable.",
+        },
+        {
+          scenario: "Transform calls `SELECT random_uuid()` for surrogate keys.",
+          consequence:
+            "Every rerun assigns different surrogate keys to the same logical rows. Downstream tables joining on those keys break.",
+          de_catches_it: "Generate surrogate keys deterministically from a hash of stable input columns: `md5(concat(natural_key, source_timestamp))`.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "idempotency",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "A daily pipeline writes summary rows for yesterday. The orchestrator retries after a partial failure. Which write strategy guarantees the second run produces the same final table as a single successful run?",
+      options: [
+        { id: "a", text: "`INSERT INTO summary SELECT ...` (append).", correct: false },
+        {
+          id: "b",
+          text: "`DELETE FROM summary WHERE date = yesterday; INSERT INTO summary SELECT ...` — partition overwrite.",
+          correct: true,
+        },
+        { id: "c", text: "`INSERT INTO summary SELECT ...` followed by manually removing duplicates after the run.", correct: false },
+        { id: "d", text: "`INSERT INTO summary VALUES (...) ON CONFLICT DO NOTHING` (silently skip duplicates).", correct: false },
+      ],
+      explanation:
+        "Partition overwrite (`DELETE WHERE partition_key = X; INSERT ...`) is the cleanest batch idempotency primitive. Append double-counts on retry; ON CONFLICT DO NOTHING leaves the first partial write's incomplete rows in place. MERGE on a stable key is the other valid option. The shared property: same input → same end state regardless of how many times the job runs.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // incremental-vs-full-loads
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "incremental-vs-full-loads",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "Full vs incremental — the trade space",
+      left_label: "Full load",
+      right_label: "Incremental load",
+      pairs: [
+        { left: "Reprocess everything every run", right: "Process only what changed since last run" },
+        { left: "Trivially idempotent — each run is authoritative", right: "Requires careful idempotency on the delta" },
+        { left: "Self-healing — drift impossible", right: "Vulnerable to silent drift; needs reconciliation" },
+        { left: "Cost scales with total data size", right: "Cost scales with the delta — cheap at scale" },
+        { left: "Simple to reason about and debug", right: "Watermark logic + edge cases (late updates, deletes) add real complexity" },
+        { left: "git clone — start fresh every time", right: "git pull — fetch only new commits since a known ref" },
+      ],
+    },
+  },
+  {
+    concept_slug: "incremental-vs-full-loads",
+    sort_order: 2,
+    type: "failure_catalog",
+    payload: {
+      title: "Silent drift — incremental loads going wrong without errors",
+      items: [
+        {
+          scenario: "Source row is hard-deleted. Watermark query `WHERE updated_at > :last_watermark` never sees deletes.",
+          consequence:
+            "The deleted row stays in your incremental copy forever. Counts and aggregations include rows that no longer exist in the source.",
+          de_catches_it:
+            "Periodic full-reload reconciliation; or CDC to capture deletes from the WAL.",
+        },
+        {
+          scenario: "Source row was updated 2 hours ago, but the row's `updated_at` somehow stayed at its original timestamp (bug in source app).",
+          consequence:
+            "Incremental query never sees the update. Your warehouse has stale values; the dashboards built on it lie.",
+          de_catches_it: "Reconcile against source periodically (full reload monthly); or CDC.",
+        },
+        {
+          scenario: "Watermark is set to `last_run_timestamp`, but the source has rows with timestamps from after `last_run` that arrived before `last_run` (clock skew).",
+          consequence:
+            "Late-arriving rows are silently skipped. Worse — if the clock corrects on the next run, you might or might not catch them.",
+          de_catches_it: "Watermark with overlap window (re-pull last 10 minutes every run, dedup); or CDC where event order matches WAL order.",
+        },
+        {
+          scenario: "Team deploys a code change that retroactively recategorizes rows. The source updates 50M rows in one transaction. Watermark catches the timestamps fine — but the warehouse incremental table is much larger now.",
+          consequence:
+            "Suddenly your incremental load processes 50M rows instead of the usual 50K. Pipeline takes 100× longer. Maybe times out.",
+          de_catches_it: "Alert on delta size vs trailing average. Recategorizations should be planned events with explicit handling.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "incremental-vs-full-loads",
+    sort_order: 3,
+    type: "dimensions",
+    payload: {
+      title: "Types of source changes you need to capture",
+      intro: "Naive incremental loads (`WHERE updated_at > :watermark`) handle the first two well and the rest poorly. CDC handles all of them.",
+      items: [
+        { name: "Inserts", description: "New rows with `updated_at` greater than the watermark. Easy — incremental loads catch these by definition." },
+        { name: "Updates (timely)", description: "Existing row mutated; `updated_at` reflects the change. Naive incremental catches these if the watermark is current." },
+        { name: "Updates (late or out-of-order)", description: "`updated_at` mysteriously below the watermark. Naive incremental misses entirely; CDC sees them." },
+        { name: "Hard deletes", description: "Row removed from source. No `updated_at` for the now-gone row to exceed the watermark. Naive incremental can't see deletes; CDC streams them as events." },
+        { name: "Soft deletes (`deleted_at` populated)", description: "Row stays but marked deleted. Naive incremental can catch these if the soft-delete update bumps `updated_at`." },
+      ],
+    },
+  },
+  {
+    concept_slug: "incremental-vs-full-loads",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "A 50 TB fact table grows ~50 GB per day. Your team has been running a nightly full reload (`CREATE OR REPLACE TABLE AS SELECT ...`). The reload now takes 8 hours and is missing the morning SLA. What's the move?",
+      options: [
+        { id: "a", text: "Buy a bigger warehouse.", correct: false },
+        {
+          id: "b",
+          text: "Move to incremental load (process only the day's 50 GB). Add a periodic full-reload reconciliation (weekly or monthly) to heal any drift.",
+          correct: true,
+        },
+        { id: "c", text: "Run the full reload less often (every 3 days instead of daily).", correct: false },
+        { id: "d", text: "Drop historical rows older than a year to shrink the table.", correct: false },
+      ],
+      explanation:
+        "At 50 TB, full reloads stop scaling. Incremental (process the 50 GB delta) is the natural answer — 1000× cheaper and faster. Add periodic full-reload reconciliation to heal drift from missed updates/deletes, or go to CDC for full coverage. Common pattern: small dims as full loads, giant facts as incremental.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // change-data-capture
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "change-data-capture",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "Naive watermarking vs CDC",
+      left_label: "Watermark-based incremental",
+      right_label: "Change Data Capture",
+      pairs: [
+        { left: "`WHERE updated_at > :watermark` query on the source", right: "Reads source's write-ahead log (WAL / binlog / oplog) directly" },
+        { left: "Catches inserts and timely updates", right: "Catches inserts, updates, and **deletes**, in commit order" },
+        { left: "Misses hard deletes (deleted rows have no `updated_at`)", right: "Sees every change the database commits" },
+        { left: "Misses out-of-order or late updates if timestamps drift", right: "Order matches WAL commit order, not wall clock" },
+        { left: "Polling pattern (every N minutes)", right: "Streaming pattern (continuous)" },
+        { left: "No coordination with source DBA required", right: "Source DBA must enable replication / grant WAL access" },
+      ],
+    },
+  },
+  {
+    concept_slug: "change-data-capture",
+    sort_order: 2,
+    type: "dimensions",
+    payload: {
+      title: "CDC mechanisms",
+      intro: "Different ways to capture changes, with different cost/fidelity trade-offs.",
+      items: [
+        {
+          name: "Log-based CDC (the gold standard)",
+          description: "Tail the database's WAL / binlog / oplog directly. Captures every commit in order. Lowest source-system impact, highest fidelity.",
+          swe_parallel: "Subscribing to the database's existing internal replication stream",
+        },
+        {
+          name: "Trigger-based CDC",
+          description: "Database triggers write to a change-log table on every insert/update/delete. Higher overhead on source writes; not always feasible.",
+        },
+        {
+          name: "Query-based CDC (watermarking)",
+          description: "Periodic `WHERE updated_at > :watermark` polling. Simplest to implement; misses deletes and late updates. The naive approach.",
+        },
+        {
+          name: "Snapshot + log-tail (hybrid)",
+          description: "Initial bulk snapshot of the source table; from then on, tail the WAL. Most production CDC tools (Debezium, Fivetran) do this.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "change-data-capture",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "What CDC catches that polling can't",
+      items: [
+        {
+          scenario: "A customer's GDPR \"right to be forgotten\" request triggers a hard delete on the source.",
+          consequence:
+            "Naive watermark polling never sees deletes. The customer's data remains in the warehouse — GDPR violation. CDC captures the delete event as part of the WAL.",
+          de_catches_it: "CDC propagates the delete to the warehouse; downstream models drop or anonymize the corresponding rows.",
+        },
+        {
+          scenario: "Application bug means some rows have `updated_at` permanently stuck at their creation time.",
+          consequence:
+            "Naive watermarking sees those rows once (at creation) and never again. Updates are missed silently.",
+          de_catches_it: "CDC sees every commit regardless of what columns the application updates.",
+        },
+        {
+          scenario: "Source DB undergoes a large migration: 50M rows updated in a single transaction.",
+          consequence:
+            "Naive watermark catches all 50M rows in one polling cycle — pipeline times out or OOMs. CDC streams them at the commit rate; downstream applies them incrementally.",
+          de_catches_it: "CDC's streaming nature spreads the load; throttling and back-pressure handle the burst.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "change-data-capture",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "Compliance requires that customer deletes propagate to the warehouse within 24 hours. The source is Postgres. Your nightly incremental load uses `WHERE updated_at > :watermark`. Does it satisfy the requirement?",
+      options: [
+        { id: "a", text: "Yes — nightly runs are well within 24 hours.", correct: false },
+        {
+          id: "b",
+          text: "No — `WHERE updated_at > :watermark` queries can't observe hard deletes at all. The customer's data would stay in the warehouse indefinitely. You need CDC (e.g., Debezium tailing the Postgres WAL).",
+          correct: true,
+        },
+        { id: "c", text: "Yes — Postgres always updates `updated_at` on delete.", correct: false },
+        { id: "d", text: "No — but adding a `deleted_at` column to every source table would fix it.", correct: false },
+      ],
+      explanation:
+        "Hard deletes simply remove the row. A query that filters `WHERE updated_at > :watermark` has no row to consider — the row no longer exists. Naive watermarking is structurally blind to deletes. The fixes are either CDC (the gold standard: tail the WAL, capture the DELETE event) or moving the source to soft deletes (mark a `deleted_at` column instead of removing the row). For an existing Postgres source, Debezium reading the logical replication slot is the standard answer.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // data-quality-as-tests
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "data-quality-as-tests",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "SWE testing vs DE testing — what's the variable",
+      left_label: "Software testing",
+      right_label: "Data quality testing",
+      pairs: [
+        { left: "Code is the variable; test data is fixed", right: "Code is often stable; data is the variable" },
+        { left: "Assert specific outputs from specific inputs", right: "Assert *properties* of the data — not-null, uniqueness, range, distribution" },
+        { left: "Runs in CI against fixtures", right: "Runs on every pipeline run against production data" },
+        { left: "Failures mean a code bug", right: "Failures mean code bug, upstream drift, OR an unusual business event" },
+        { left: "Test files committed alongside code", right: "Assertions live next to model definitions (dbt YAML, Great Expectations) and watch each run" },
+      ],
+    },
+  },
+  {
+    concept_slug: "data-quality-as-tests",
+    sort_order: 2,
+    type: "dimensions",
+    payload: {
+      title: "The assertion library",
+      intro: "What you actually check. Mix and match per dataset — most production datasets need 5–10 active assertions.",
+      items: [
+        { name: "Uniqueness", description: "Primary keys, business keys, (user_id, date) — never duplicated. DB constraints rarely available in OLAP, so you assert post-load." },
+        { name: "Not-null", description: "Required fields. Catches schema drift or upstream config changes that introduce missing values." },
+        { name: "Accepted values", description: "Categorical columns within a known set. Catches new enum values that downstream code doesn't handle." },
+        { name: "Referential integrity", description: "Foreign keys resolve to a parent row in the dimension table. Catches orphan facts." },
+        { name: "Range / domain", description: "Numerics within plausible bounds; dates in plausible windows. Revenue ≥ 0; age ≤ 120." },
+        { name: "Freshness", description: "max(timestamp) within an SLA window. \"Is this table being updated?\"" },
+        { name: "Volume", description: "Row count within X% of trailing average. Catches silent dropoffs." },
+        { name: "Distribution / drift", description: "Mean, median, percentiles within expected drift bands. Catches value shifts that pass type checks." },
+      ],
+    },
+  },
+  {
+    concept_slug: "data-quality-as-tests",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "Bad-row handling — circuit breaker, DLQ, or just fail?",
+      items: [
+        {
+          scenario: "Financial transactions ingestion — a row arrives with `amount = NULL`.",
+          consequence:
+            "Quarantining is wrong for critical data: silently allowing some transactions to be partially processed corrupts financial reports.",
+          de_catches_it: "Fail loudly. Halt the pipeline. Page someone. Money requires strict-mode assertions.",
+        },
+        {
+          scenario: "Clickstream events ingestion — 200 of 50M rows have malformed user agents.",
+          consequence:
+            "Failing the whole pipeline for 200 bad rows wastes the other 49,999,800 rows of valid events.",
+          de_catches_it: "Quarantine the bad rows to a side table (DLQ pattern); continue with the good ones. Alert on quarantine depth so someone investigates.",
+        },
+        {
+          scenario: "Silver→gold publish: bad rows would propagate into executive dashboards.",
+          consequence:
+            "Executives lose trust in numbers permanently when corrections happen retroactively.",
+          de_catches_it: "Circuit breaker at the boundary: if quality assertions fail, BLOCK the publish to gold. Better to serve yesterday's correct numbers than today's broken ones.",
+        },
+        {
+          scenario: "Source's `email` field starts arriving 30% null after a frontend deploy. No assertion was watching.",
+          consequence:
+            "Marketing campaigns miss a third of users for the next week before someone notices.",
+          de_catches_it: "Null-rate assertion vs trailing average. Add the assertion when you first land the column, not after the first incident.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "data-quality-as-tests",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "Daily revenue rows look fine: types match, no nulls, all values positive. But today's total revenue is half of yesterday's. Which kind of test catches this?",
+      options: [
+        { id: "a", text: "Type / schema check on the `revenue` column.", correct: false },
+        { id: "b", text: "Not-null assertion on `revenue`.", correct: false },
+        {
+          id: "c",
+          text: "Volume + distribution test: row count and SUM(revenue) within X% of trailing 7-day average. Triggers when today's value drifts significantly from the baseline.",
+          correct: true,
+        },
+        { id: "d", text: "Uniqueness assertion on `order_id`.", correct: false },
+      ],
+      explanation:
+        "Structural assertions (type, not-null, uniqueness) all pass because the data is well-formed — there's just less of it (or smaller values). The miss is a *distribution* property: today's value diverges from recent history. Tools like Great Expectations, dbt's `dbt_utils.expression_is_true` with rolling-average comparisons, and Monte Carlo specialize in this kind of distribution-vs-baseline assertion.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // transformation-layering
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "transformation-layering",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "Declarative SQL vs imperative code",
+      left_label: "SQL-based (dbt)",
+      right_label: "Code-based (Python / Spark)",
+      pairs: [
+        { left: "Declarative — \"what,\" not \"how\"", right: "Imperative — full procedural control" },
+        { left: "Warehouse-native; runs in Snowflake/BigQuery", right: "External compute (Spark cluster, Python service)" },
+        { left: "Accessible to analysts (analytics engineering)", right: "Requires software-engineering skills" },
+        { left: "Excellent for joins / aggregations / windows (80% case)", right: "Wins for complex procedural logic, ML features, unstructured parsing, external API calls" },
+        { left: "Optimizer chooses execution plan", right: "You choose the algorithm" },
+        { left: "Tests + docs + lineage built into the framework", right: "Roll your own (pytest + custom lineage)" },
+      ],
+    },
+  },
+  {
+    concept_slug: "transformation-layering",
+    sort_order: 2,
+    type: "dimensions",
+    payload: {
+      title: "Staging → Intermediate → Mart",
+      intro: "The dbt-canonical layering. Push volatility to the edges; keep stable business logic in the core.",
+      items: [
+        {
+          name: "Staging",
+          description: "One-to-one with sources. Only place that knows a source's quirks. Light cleanup: rename columns, cast types, dedupe. No joins, no business logic.",
+          swe_parallel: "Adapter / anti-corruption layer — isolates the volatile source-specific code",
+        },
+        {
+          name: "Intermediate",
+          description: "Business logic lives here. Joins between staging models, derived columns, type-2 SCD applied. The reasoning layer.",
+          swe_parallel: "Domain layer — stable across source-system changes",
+        },
+        {
+          name: "Mart",
+          description: "Consumer-facing dimensional models, aggregates, business metrics. The contract consumers depend on. Often per-team (finance_mart, marketing_mart) so blast radius is bounded.",
+          swe_parallel: "Presentation / API layer — the published interface",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "transformation-layering",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "Layering violations and what they cost",
+      items: [
+        {
+          scenario: "Business logic is written in the staging layer (\"easier to put it all in one place\")",
+          consequence:
+            "When the source changes a column name, both the renaming AND the business logic have to change. Multiple maintainers touch the same file for unrelated reasons.",
+          de_catches_it: "Strict staging-only-does-renames discipline; keep business logic downstream in intermediate.",
+        },
+        {
+          scenario: "A mart model joins directly to a staging model (skipping intermediate)",
+          consequence:
+            "Source-system quirks leak into the consumer-facing model. The next source schema change ripples all the way to the mart.",
+          de_catches_it: "Mart models only reference intermediate (or other marts). The intermediate layer is the buffer.",
+        },
+        {
+          scenario: "One giant monolithic SQL file does staging, joins, and aggregation",
+          consequence:
+            "No part can be tested or rebuilt in isolation. Schema changes ripple through everything. The orchestrator can't parallelize.",
+          de_catches_it: "Break into a DAG of small models, each with a single responsibility. dbt's `ref()` builds the dependency graph automatically.",
+        },
+        {
+          scenario: "Heavy ML feature engineering shoved into dbt SQL because \"we're an ELT shop\"",
+          consequence:
+            "500 lines of nested CTEs reimplementing array operations and string parsing that Python would do in 5 lines.",
+          de_catches_it: "Drop to Python/Spark for the heavy procedural step; write the result back to the warehouse; let dbt SQL handle the modeling layer downstream.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "transformation-layering",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "The Salesforce source renames `Customer_Name__c` to `Account_Name__c`. Three downstream marts use customer data. In a staging-intermediate-mart layered DAG, where do you make the change?",
+      options: [
+        { id: "a", text: "Update each of the three mart models to reference the new column name.", correct: false },
+        {
+          id: "b",
+          text: "Update the single staging model for Salesforce — rename the column there. The intermediate and mart layers, which reference the staging model's alias, don't change.",
+          correct: true,
+        },
+        { id: "c", text: "Refactor everything end-to-end since column names are part of the contract.", correct: false },
+        { id: "d", text: "Add a new staging model for the new column name and leave the old one in place.", correct: false },
+      ],
+      explanation:
+        "Staging models exist precisely to isolate this kind of change. The staging model aliases `Customer_Name__c` to whatever the downstream layers reference (e.g., `customer_name`). When the source renames the column, you update the staging model's `SELECT Account_Name__c AS customer_name` — done. The intermediate and mart layers, which only know `customer_name`, are untouched. This is the adapter pattern: volatile source-specific code at the edges; stable business logic in the core.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // dags
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "dags",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "Task-centric vs asset-centric orchestration",
+      left_label: "Task-centric (Airflow's default)",
+      right_label: "Asset-centric (Dagster, dbt)",
+      pairs: [
+        { left: "You wire `task_a >> task_b` explicitly", right: "You declare \"asset B is built from A\"; framework infers the DAG" },
+        { left: "The unit is a job/task", right: "The unit is a data asset (a table, a file, a model)" },
+        { left: "Graph can drift from the code (hand-maintained)", right: "Graph can't drift — derived from declarations" },
+        { left: "Cron-aligned: \"run B at 7 AM\"", right: "Data-aware: \"B runs when A's data for this partition is ready\"" },
+        { left: "Freshness measured on the job", right: "Freshness measured on the asset" },
+      ],
+    },
+  },
+  {
+    concept_slug: "dags",
+    sort_order: 2,
+    type: "dimensions",
+    payload: {
+      title: "What the DAG buys you for free",
+      intro: "Encoding dependencies as a graph gives the orchestrator three things automatically — the same three you get from a build system.",
+      items: [
+        {
+          name: "Valid execution order",
+          description: "Topological sort produces a sequence where every task runs after its prerequisites. Same algorithm a package manager uses to resolve install order.",
+        },
+        {
+          name: "Parallelism",
+          description: "Independent subtrees can run concurrently — discovered automatically by inspecting the graph, no manual coordination needed.",
+        },
+        {
+          name: "Incremental rebuild",
+          description: "Change one node; the orchestrator computes the minimum set of downstream nodes that need to re-run. Same as `bazel build` rebuilding only what depends on a changed source.",
+        },
+        {
+          name: "Cycle detection",
+          description: "A cycle means a task transitively depends on itself — unrunnable. The orchestrator rejects it at load time, the way a build tool rejects circular `#include`s.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "dags",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "What you lose without an orchestrator (cron-pile anti-patterns)",
+      items: [
+        {
+          scenario: "Cron runs job B every day at 7 AM, regardless of whether the upstream job A succeeded the night before.",
+          consequence:
+            "When A fails, B runs on stale data and produces a subtly wrong dashboard. The dashboard says \"success.\" Nobody knows the numbers are last week's.",
+          de_catches_it: "Use an orchestrator: B becomes downstream of A in the DAG, and if A fails or is late, B is blocked (`upstream_failed`).",
+        },
+        {
+          scenario: "Two cron jobs both depend on the same input file. They're scheduled close enough that one runs before the file is fully written.",
+          consequence:
+            "One job processes a truncated file; results are wrong. No error — just bad data.",
+          de_catches_it: "A `FileSensor` blocks until the file is complete (or the upload signals \"done\"). Event-driven dependency, not time-aligned guessing.",
+        },
+        {
+          scenario: "A cron-scheduled refresh runs on the hour. The upstream source publishes new data at :05.",
+          consequence:
+            "Every run processes the previous hour's snapshot. The dashboard is *one hour late forever*, and nobody notices.",
+          de_catches_it: "Sensor on the source's \"published\" event, or DAG scheduled after the publish time with explicit alignment.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "dags",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "A team migrates from cron-scheduled scripts to Airflow. What's the most important thing they gain?",
+      options: [
+        { id: "a", text: "Faster execution.", correct: false },
+        {
+          id: "b",
+          text: "Dependency-aware execution: if A fails, downstream B doesn't run on stale or missing data. Plus retries, sensors for external events, and a visual DAG.",
+          correct: true,
+        },
+        { id: "c", text: "Less code to maintain.", correct: false },
+        { id: "d", text: "Cheaper compute.", correct: false },
+      ],
+      explanation:
+        "Cron fires jobs at scheduled times regardless of whether upstream succeeded. An orchestrator makes the dependency graph explicit: downstream tasks block on upstream success, retries are first-class, and sensors handle external events. The result is fewer silent corruption bugs from \"job ran but data was wrong.\"",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // dependency-management
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "dependency-management",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "Code dependency vs data dependency",
+      left_label: "Build system",
+      right_label: "Data orchestrator",
+      pairs: [
+        { left: "\"A.o is built before B.o\"", right: "\"A's *data for partition X* is ready before B processes partition X\"" },
+        { left: "Topological sort over source-file imports", right: "Topological sort over data assets (with a time axis)" },
+        { left: "Edges are static (import statements)", right: "Edges can be dynamic — depend on external signals (sensors)" },
+        { left: "Failed compile → build halts, you see it now", right: "Failed task → orchestrator marks downstream as blocked across the entire DAG" },
+        { left: "Reruns rebuild the whole tree from a clean state", right: "Reruns are scoped to specific partitions (logical date ranges)" },
+      ],
+    },
+  },
+  {
+    concept_slug: "dependency-management",
+    sort_order: 2,
+    type: "dimensions",
+    payload: {
+      title: "Kinds of dependencies an orchestrator manages",
+      intro: "Each kind has a different mechanism. Modern orchestrators model all four.",
+      items: [
+        {
+          name: "Intra-DAG (task-to-task)",
+          description: "`task_a >> task_b` — B runs after A succeeds. The simplest case; just topological sort over the explicit edges.",
+        },
+        {
+          name: "Cross-DAG (workflow-to-workflow)",
+          description: "Pipeline X waits on pipeline Y, which has its own schedule and owner. `ExternalTaskSensor` in Airflow; cross-job dependencies in Dagster.",
+        },
+        {
+          name: "External / sensor-based",
+          description: "Block until a file lands in S3, a Kafka message arrives, or an API endpoint returns ready. Event-driven dependency layered on top of schedule-driven.",
+        },
+        {
+          name: "Time-partitioned (data-aware)",
+          description: "B's run for partition X waits on A's *materialization for partition X*, not just on A's process exiting. The novel data-DAG concept that has no direct build-system equivalent.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "dependency-management",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "Dependency mistakes that silently corrupt downstream",
+      items: [
+        {
+          scenario: "Team adds a new transform that depends on an upstream table — but doesn't declare the dependency in the DAG (uses raw cron timing instead).",
+          consequence:
+            "On a slow night, upstream runs late. The downstream transform fires at its scheduled minute, processes yesterday's data instead of today's, and the executive dashboard shows yesterday's numbers labeled as today's.",
+          de_catches_it: "Always declare the dependency in the DAG. The orchestrator blocks downstream until upstream materializes.",
+        },
+        {
+          scenario: "DAG has implicit dependency on a third-party vendor file landing in S3 by 6 AM. No sensor — the team just schedules the consuming job for 6:05 AM.",
+          consequence:
+            "Vendor is occasionally late. When the file lands at 6:15, the 6:05 job processed an empty/missing input and silently wrote zeros downstream.",
+          de_catches_it: "S3 `FileSensor` blocks until the file exists. Or schedule a poke-style sensor with timeout + alert.",
+        },
+        {
+          scenario: "Two pipelines own different parts of the same fact table. Neither pipeline knows about the other; both write on independent schedules.",
+          consequence:
+            "Race conditions. Readers see partial updates. Reports computed across the two halves are inconsistent.",
+          de_catches_it: "Single owner per asset, or explicit cross-DAG sensors with locking semantics. Or, better, refactor: one pipeline produces the fact table.",
+        },
+        {
+          scenario: "Team wires dependencies at task level (\"task A runs before task B\") instead of partition level. A's daily run for date X completes at 11 PM; B's daily run starts at 11:01 PM but processes date Y.",
+          consequence:
+            "B's date-Y run doesn't actually need A's date-X output. The dependency is over-conservative — every B run waits on the corresponding A run, even when partitions don't align.",
+          de_catches_it: "Time-partitioned dependencies: B's run for date Z waits on A's run for date Z (or aligned offset). Both Airflow's data-aware scheduling and Dagster's partitioned assets handle this.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "dependency-management",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "Your pipeline depends on a daily CSV from a third-party vendor that *usually* lands in S3 by 6 AM, but sometimes is hours late. How do you handle the dependency correctly?",
+      options: [
+        { id: "a", text: "Schedule the downstream job at 7 AM (an hour buffer). Hope the file is there.", correct: false },
+        {
+          id: "b",
+          text: "Use a sensor (e.g., Airflow's `S3KeySensor`) that blocks the downstream job until the file actually lands. Set a reasonable timeout that triggers an alert if the file is *very* late.",
+          correct: true,
+        },
+        { id: "c", text: "Use cron at 6:05 AM regardless.", correct: false },
+        { id: "d", text: "Have the downstream job loop until the file appears.", correct: false },
+      ],
+      explanation:
+        "Sensors are the canonical way to express \"wait for an external event before proceeding.\" `S3KeySensor` (or equivalent) blocks until the file exists, with an explicit timeout so the dependency doesn't hang forever. Cron + buffer is fragile (file could be later than your buffer); job-internal polling is hidden from the orchestrator (it can't see why the job is slow). Express the dependency at the orchestrator level, where it's observable.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // backfilling
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "backfilling",
+    sort_order: 1,
+    type: "failure_catalog",
+    payload: {
+      title: "Backfill traps — when re-running history produces wrong history",
+      items: [
+        {
+          scenario: "Transform uses `now()` or `CURRENT_DATE` in the row body.",
+          consequence:
+            "Backfilling March 2024 stamps rows with *today's* date. Joins and time-series queries on those rows look wrong forever.",
+          de_catches_it: "Pass the logical date in as a parameter. Use that, not `now()`, for any time-stamped column.",
+        },
+        {
+          scenario: "Currency-conversion transform calls a third-party exchange rate API at runtime — \"get today's USD→EUR rate.\"",
+          consequence:
+            "Backfilling March 2024 applies today's exchange rate to March's transactions. Historical revenue in EUR is wrong by months of FX drift.",
+          de_catches_it: "Snapshot exchange rates daily into a dim table; join the transform against that table by date. Same problem, same fix as SCD Type 2.",
+        },
+        {
+          scenario: "Transform joins to a customer dim table that's been overwriting addresses (SCD Type 1).",
+          consequence:
+            "Backfilling March 2024 attributes March orders to customers' *current* cities. \"Revenue by city for Q1 2024\" silently changes every time a customer moves.",
+          de_catches_it: "Use SCD Type 2: each fact references the dim version that was current when the event happened. Phase 2 covered why this matters; backfilling is when you actually feel it.",
+        },
+        {
+          scenario: "Backfill kicks off and runs all 365 days of last year concurrently. The source database melts.",
+          consequence: "Production DB hits 100% CPU, primary-app latency spikes, SREs page the on-call.",
+          de_catches_it: "Concurrency limits on backfills (Airflow `max_active_runs`, Dagster partition concurrency). Cap to 2–5 partitions in parallel; let the backfill take longer rather than nuking the source.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "backfilling",
+    sort_order: 2,
+    type: "comparison",
+    payload: {
+      title: "Logical date vs wall-clock time",
+      left_label: "Wall-clock time",
+      right_label: "Logical date (partition)",
+      pairs: [
+        { left: "\"This script ran at 2026-06-02 03:00 UTC.\"", right: "\"This run is processing partition 2026-06-01.\"" },
+        { left: "Where `now()` and `CURRENT_DATE` come from", right: "What the transform should use for any time-stamped column" },
+        { left: "Same wall-clock time can mean different partitions across reruns", right: "Same logical date = same input = same output (deterministic)" },
+        { left: "Useful for: logging when something ran", right: "Useful for: identifying which time-slice of data was processed" },
+        { left: "Wrong to use *inside* a transform's data", right: "The correct parameter to pass into the transform" },
+      ],
+    },
+  },
+  {
+    concept_slug: "backfilling",
+    sort_order: 3,
+    type: "dimensions",
+    payload: {
+      title: "Common backfill use cases",
+      intro: "Each one is a re-run over a historical range, with different motivations.",
+      items: [
+        {
+          name: "Populating a new derived table",
+          description: "You added a new mart that should have two years of history. Backfill computes it across the past 730 partitions.",
+        },
+        {
+          name: "Bug fix recovery",
+          description: "Found a logic bug that's been miscalculating revenue for 90 days. Fix the code; backfill the affected window; the fix propagates through history.",
+        },
+        {
+          name: "Gap fill",
+          description: "A pipeline failed silently for three days. Identify the missing partitions and re-run.",
+        },
+        {
+          name: "Schema or definition change",
+          description: "The team agreed on a new \"signup\" definition. Backfill the historical signups table so YoY comparisons stay meaningful.",
+        },
+        {
+          name: "New source",
+          description: "Onboarding a vendor with a year of historical export. Backfill that history into bronze before normal incremental runs take over.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "backfilling",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "You're backfilling 90 days because of a revenue-calculation bug. The transform looks correct after the fix. Two weeks later analysts notice the backfilled rows have different `created_year` values than they should. What's the likely cause?",
+      options: [
+        { id: "a", text: "Concurrency limits weren't set during the backfill.", correct: false },
+        {
+          id: "b",
+          text: "The transform uses `EXTRACT(YEAR FROM CURRENT_DATE)` somewhere. The backfill stamped all 90 days with the *current* year instead of the historical year.",
+          correct: true,
+        },
+        { id: "c", text: "Snowflake had a temporary outage.", correct: false },
+        { id: "d", text: "The backfill ran too fast.", correct: false },
+      ],
+      explanation:
+        "Classic `now()` / `CURRENT_DATE` trap. The transform was correct under normal incremental runs (where wall-clock and logical date roughly agree), but during backfill the wall-clock is *today* while the logical date is months in the past. Any time-stamped column built from `CURRENT_DATE` reflects today, not the partition being processed. Fix: pass the logical date as a parameter; use it everywhere.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // failure-modes
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "failure-modes",
+    sort_order: 1,
+    type: "dimensions",
+    payload: {
+      title: "The resilience toolkit",
+      intro: "Each tool maps to a distributed-systems pattern an SWE already knows.",
+      items: [
+        {
+          name: "Retries with exponential backoff",
+          description: "For transient failures: network blip, DB momentary unavailability, rate limit. Automatic, up to a max-attempts. Precondition: idempotency.",
+          swe_parallel: "HTTP client retrying on 5xx with backoff",
+        },
+        {
+          name: "Dead-letter queue (DLQ)",
+          description: "For bad *records* in an otherwise-good batch. Quarantine the row; let the pipeline make progress; alert on quarantine depth.",
+          swe_parallel: "Same DLQ pattern as Kafka / SQS consumers",
+        },
+        {
+          name: "Timeouts",
+          description: "Cap how long a task can run. A hung task blocks the whole DAG; timeout + retry restores progress.",
+          swe_parallel: "Request timeouts on HTTP clients",
+        },
+        {
+          name: "Circuit breaker",
+          description: "Stop publishing to downstream when quality assertions fail. Better to serve last-known-good than to publish broken data.",
+          swe_parallel: "Hystrix-style circuit breaker",
+        },
+        {
+          name: "Graceful degradation",
+          description: "When fresh data isn't available, serve the last successful snapshot rather than nothing.",
+          swe_parallel: "Cached-response fallback during outage",
+        },
+        {
+          name: "Isolation (bulkheads)",
+          description: "One team's failing DAG must not take down the scheduler or starve other teams' jobs. Resource pools, dedicated workers.",
+          swe_parallel: "Microservice bulkhead pattern",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "failure-modes",
+    sort_order: 2,
+    type: "comparison",
+    payload: {
+      title: "Transient vs permanent failures",
+      left_label: "Transient (retry)",
+      right_label: "Permanent (fail fast, alert)",
+      pairs: [
+        { left: "Network timeout, source DB connection drop", right: "Schema mismatch, logic bug, division by zero" },
+        { left: "Self-resolves on retry", right: "Will fail the same way no matter how many times you retry" },
+        { left: "Common — happens nightly under any meaningful load", right: "Rare but always actionable" },
+        { left: "Tune retries to absorb silently (no human paged)", right: "Page the on-call; needs intervention" },
+        { left: "Idempotency is the precondition that makes retry safe", right: "No safety amount of retry will fix this" },
+      ],
+    },
+  },
+  {
+    concept_slug: "failure-modes",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "Alert fatigue — when the resilience kit becomes the problem",
+      items: [
+        {
+          scenario: "Every transient task failure pages the on-call. Three pages a night, all auto-resolved on retry.",
+          consequence: "On-call stops looking carefully at pages — when a real one fires, it's lost in the noise.",
+          de_catches_it: "Page only on retries-exhausted *and* SLA-tracked dataset. Transient + recovered = silent.",
+        },
+        {
+          scenario: "Same alert fires for a missing column (urgent) and a delayed-by-5-minutes job (not urgent).",
+          consequence: "On-call can't distinguish. Treats both as urgent, burns out. Or treats both as routine, misses real ones.",
+          de_catches_it: "Two severity levels. \"Page now\" for SLA-impacting; \"open a ticket\" for everything else.",
+        },
+        {
+          scenario: "Green pipeline run, but downstream dashboard shows nonsense — silent data corruption.",
+          consequence: "Nobody noticed for a week. By the time someone asks \"why are the numbers weird?\", a board meeting has used them.",
+          de_catches_it: "Alert on data signals (freshness, volume, distribution), not just job-success. A green run is necessary but not sufficient.",
+        },
+        {
+          scenario: "Alert says \"task failed\" with no context — no DAG ID, no execution date, no log link.",
+          consequence: "On-call spends 10 minutes finding what failed before they can even start fixing it.",
+          de_catches_it: "Alert templates that include DAG ID, execution date, error excerpt, and a link to the run UI. Make every page actionable.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "failure-modes",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "A batch of 50M events is being ingested. One row has `amount = 'banana'` (string in a numeric column). What's the right reaction?",
+      options: [
+        { id: "a", text: "Retry the batch — maybe it'll work next time.", correct: false },
+        {
+          id: "b",
+          text: "Route that one row to a DLQ; let the other 49,999,999 rows succeed. Alert when the DLQ grows.",
+          correct: true,
+        },
+        { id: "c", text: "Fail the whole batch; halt downstream.", correct: false },
+        { id: "d", text: "Silently drop the bad row.", correct: false },
+      ],
+      explanation:
+        "This is the classic DLQ pattern. The failure is *permanent for that row* (retrying won't fix \"banana\"), but the batch is otherwise fine. Failing the whole batch wastes 49,999,999 good rows. Silently dropping loses the evidence. Quarantining preserves the bad row, keeps the pipeline making progress, and the DLQ depth tells you when something upstream changed (one bad row = noise; thousands = investigate).",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // sla-for-data
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "sla-for-data",
+    sort_order: 1,
+    type: "dimensions",
+    payload: {
+      title: "The two dimensions of a data SLA — and the SRE vocabulary",
+      intro: "API SLAs are mostly about availability; data SLAs have two axes plus the SLI/SLO/SLA stack.",
+      items: [
+        {
+          name: "Freshness",
+          description: "How recent is the data? \"Yesterday's sales available by 8 AM.\" \"Orders mart no more than 24 hours stale.\"",
+          swe_parallel: "Request latency, but measured on the data not the response",
+        },
+        {
+          name: "Completeness",
+          description: "Is everything expected present and valid? Row counts in range, no missing partitions, quality checks passing.",
+          swe_parallel: "No clean API analogue — the response was returned, but the body is wrong",
+        },
+        {
+          name: "SLI (Service Level Indicator)",
+          description: "The measured signal. \"Actual data lag in minutes.\" \"Percent of rows passing data-quality checks.\"",
+        },
+        {
+          name: "SLO (Service Level Objective)",
+          description: "Your internal target. \"99% of runs finish within 30 minutes of source publication.\" Used to manage on-call effort.",
+        },
+        {
+          name: "SLA (Service Level Agreement)",
+          description: "The promise made to consumers. Usually looser than the SLO so you have headroom. The contractual external face.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "sla-for-data",
+    sort_order: 2,
+    type: "comparison",
+    payload: {
+      title: "API SLA vs data SLA",
+      left_label: "API SLA",
+      right_label: "Data SLA",
+      pairs: [
+        { left: "Mostly one-dimensional: availability + latency", right: "Two-dimensional: freshness + completeness" },
+        { left: "\"99.9% of requests return within 500ms\"", right: "\"Orders mart freshness < 24h, completeness > 99% of expected rows\"" },
+        { left: "A 200 response with the right body is success", right: "A green pipeline run with stale data is *failure*" },
+        { left: "Failure is loud (5xx response)", right: "Failure is often silent (table exists, queries return, data is wrong)" },
+        { left: "Measured at the request boundary", right: "Measured on the data asset itself, decoupled from any single job's success" },
+      ],
+    },
+  },
+  {
+    concept_slug: "sla-for-data",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "SLA failures with no clean API analogue",
+      items: [
+        {
+          scenario: "Job ran successfully and produced output, but the upstream sensor that should have signaled \"new data\" never fired. Output is identical to yesterday's.",
+          consequence:
+            "Job-level SLA shows green. Data is stale. Dashboards built on it lie. No alert.",
+          de_catches_it: "Asset-level freshness policy: continuously check \"is this asset younger than X?\" — independent of any single job's success.",
+        },
+        {
+          scenario: "Pipeline finishes at 7:55 AM (8 AM SLA), but quality assertions fail and the circuit-breaker blocks publishing to gold. Consumers see yesterday's data.",
+          consequence:
+            "Strictly speaking the gold table is *stale* (freshness SLA breached), but *correct* (completeness SLA preserved). The right trade-off depends on the consumer.",
+          de_catches_it: "Separate freshness SLA from completeness SLA. Sometimes \"correct but late\" is the right answer; alert on both, but they're distinct events.",
+        },
+        {
+          scenario: "SLA is defined on the *job* (\"daily revenue job must finish by 8 AM\"). Job finishes at 7:55 AM but writes empty output.",
+          consequence: "Job-level SLA: met. Data-level reality: catastrophic.",
+          de_catches_it: "Promise about the *outcome* (the data), not the *work* (the job). Asset-level freshness + completeness; the job is the implementation detail.",
+        },
+        {
+          scenario: "Team promises \"100% freshness SLA, zero downtime, zero late data.\"",
+          consequence:
+            "Unmeetable. First failure becomes a crisis. Team burns out chasing perfection.",
+          de_catches_it: "Error-budget mindset: define what *acceptable* freshness and completeness look like (99.5%, not 100%); spend reliability effort against the budget. Don't promise perfection.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "sla-for-data",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "Two ways to express \"the orders mart must be no more than 24 hours stale.\" Which is more robust?",
+      options: [
+        { id: "a", text: "Job-level SLA: \"the orders refresh job must succeed every 24 hours.\"", correct: false },
+        {
+          id: "b",
+          text: "Asset-level freshness policy: \"the orders mart's last-update timestamp must be within 24 hours, continuously checked,\" independent of any single job's success.",
+          correct: true,
+        },
+        { id: "c", text: "Both are equally good.", correct: false },
+        { id: "d", text: "Neither — freshness can't be promised.", correct: false },
+      ],
+      explanation:
+        "Job-level SLAs miss whole classes of failure: the job succeeded but produced no new data; the job failed but a recent earlier run is still fresh enough; a sensor blocked the job for a legitimate reason. Asset-level freshness checks the *outcome* — is the data current? — decoupled from how it got that way. This is the same shift as SRE moving from monitoring deploys to monitoring user-facing SLOs.",
+    },
+  },
 ];

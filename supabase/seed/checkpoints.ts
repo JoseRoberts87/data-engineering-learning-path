@@ -426,61 +426,345 @@ export const questions: QuestionSeed[] = [
   // ── Phase 3 ──────────────────────────────────────────
   {
     checkpoint_slug: "checkpoint-data-movement-and-transformation",
-    prompt: "A pipeline is rerun for the same partition due to an upstream fix. Without idempotency, what's the most likely failure mode?",
+    prompt: "Why did the industry shift from ETL to ELT for cloud-native data platforms?",
     options: [
-      { id: "a", text: "The job refuses to start.", correct: false },
-      { id: "b", text: "Duplicate rows in the target table.", correct: true },
-      { id: "c", text: "The schema changes automatically.", correct: false },
-      { id: "d", text: "The cluster crashes.", correct: false },
+      { id: "a", text: "ETL is harder to write than ELT.", correct: false },
+      {
+        id: "b",
+        text: "Cloud warehouses decoupled storage from compute and made both cheap and elastic — landing raw became affordable, and warehouse compute became powerful enough to transform in place.",
+        correct: true,
+      },
+      { id: "c", text: "ELT is faster than ETL by definition.", correct: false },
+      { id: "d", text: "ETL was deprecated by SQL standards committees.", correct: false },
     ],
     explanation:
-      "A non-idempotent pipeline appends rows on each run. Re-running it (even for legitimate reasons like backfills or retries) duplicates everything in that partition. Idempotency is achieved by merge-on-key writes, deterministic partition replacement, or transactional swaps.",
+      "The shift is structural, not stylistic. Snowflake, BigQuery, and similar warehouses separated storage from compute and made each cheap. That made it affordable to land all the raw data first, and gave you elastic compute to transform in place — eliminating the need for a separate ETL tier. The big bonus: you keep the raw source of truth (bronze), so you can re-derive curated tables whenever logic changes.",
     sort_order: 1,
   },
   {
     checkpoint_slug: "checkpoint-data-movement-and-transformation",
-    prompt: "What distinguishes ELT from ETL?",
+    prompt: "When does ETL (transform-before-load) still beat ELT?",
     options: [
-      { id: "a", text: "ELT never transforms data.", correct: false },
-      { id: "b", text: "ELT loads raw data first, then transforms it inside the warehouse.", correct: true },
-      { id: "c", text: "ETL is always faster than ELT.", correct: false },
-      { id: "d", text: "ELT doesn't require a warehouse.", correct: false },
+      { id: "a", text: "When the source dataset is small.", correct: false },
+      {
+        id: "b",
+        text: "When you must mask or drop PII before it lands in the warehouse (compliance), or when a transform is too heavy/procedural to express well in SQL.",
+        correct: true,
+      },
+      { id: "c", text: "When your warehouse doesn't support partitioning.", correct: false },
+      { id: "d", text: "When the source system is Postgres.", correct: false },
     ],
     explanation:
-      "ELT pushes transformation compute into the warehouse. Raw data lands first, then transformations re-derive curated tables — cheaply, repeatably, and easy to iterate on because the raw layer is always available.",
+      "ELT is the modern default for most analytical workloads, but there are still good reasons to transform before loading. The dominant ones: compliance/PII (you can't land sensitive fields raw if regulation forbids it), and heavy procedural logic that SQL can't express cleanly (parsing, ML feature engineering, external API calls). For those cases, transform in Spark/Python first, then land the cleaned result.",
     sort_order: 2,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-movement-and-transformation",
+    prompt: "A daily pipeline appends rows to a fact table. The team reruns yesterday's job to fix a bug. What happens?",
+    options: [
+      { id: "a", text: "Nothing — reruns just overwrite the rows.", correct: false },
+      {
+        id: "b",
+        text: "Yesterday's rows are now duplicated. Every `SUM(revenue)` for that day is doubled. No error is thrown.",
+        correct: true,
+      },
+      { id: "c", text: "The pipeline errors because the rows already exist.", correct: false },
+      { id: "d", text: "The orchestrator detects the duplicate and skips the second run.", correct: false },
+    ],
+    explanation:
+      "A non-idempotent pipeline silently corrupts on every rerun. The fix is `MERGE` on a stable business key, or partition overwrite (`DELETE WHERE date = X; INSERT`) so a second run replaces the partition rather than appending to it. \"Exactly-once\" is at-least-once delivery plus idempotent writes; idempotency is what makes unreliable execution safe.",
+    sort_order: 3,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-movement-and-transformation",
+    prompt: "What does \"exactly-once delivery\" really mean in a modern pipeline?",
+    options: [
+      { id: "a", text: "The message broker guarantees each event is delivered exactly once.", correct: false },
+      {
+        id: "b",
+        text: "It's mostly a marketing term — what you actually build is at-least-once delivery plus idempotent writes, which yields effectively-once.",
+        correct: true,
+      },
+      { id: "c", text: "Each message has a unique ID that lets you tell duplicates apart.", correct: false },
+      { id: "d", text: "Strict ordering guarantees prevent duplicates.", correct: false },
+    ],
+    explanation:
+      "True exactly-once is essentially impossible in distributed systems — the two-generals problem. What's practical is at-least-once delivery (the broker may deliver duplicates under failure) plus idempotent consumers (the same message processed twice produces the same end state). Together, the effect is exactly-once. Idempotency is the property that makes unreliable delivery safe.",
+    sort_order: 4,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-movement-and-transformation",
+    prompt: "Your incremental load uses `WHERE updated_at > :watermark` to pull new rows from a source table. After a month, the incremental copy has silently diverged from the source. What's the most likely cause?",
+    options: [
+      { id: "a", text: "The warehouse compressed the data.", correct: false },
+      {
+        id: "b",
+        text: "Rows have been deleted from the source. A `WHERE updated_at > :watermark` query never sees deletes — there's no `updated_at` greater than the watermark for a row that no longer exists.",
+        correct: true,
+      },
+      { id: "c", text: "The watermark column is the wrong type.", correct: false },
+      { id: "d", text: "Updates always carry the same timestamp.", correct: false },
+    ],
+    explanation:
+      "Naive timestamp-based incremental loads catch inserts and most updates, but miss two things: hard deletes (deleted rows are simply gone — no row has an `updated_at` to scan past the watermark) and late updates whose `updated_at` falls behind the watermark for some reason. The defenses: periodic full-reload reconciliation to heal drift, or Change Data Capture (CDC) reading the source's write-ahead log.",
+    sort_order: 5,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-movement-and-transformation",
+    prompt: "Why does Change Data Capture (CDC) catch source-data changes that naive watermark-based incremental loads miss?",
+    options: [
+      { id: "a", text: "CDC runs more frequently than batch incremental loads.", correct: false },
+      {
+        id: "b",
+        text: "CDC reads the source database's write-ahead log directly, so it sees every insert, update, and delete the database commits — including changes that a `WHERE updated_at > :watermark` query can't observe.",
+        correct: true,
+      },
+      { id: "c", text: "CDC keeps a backup of the source table for comparison.", correct: false },
+      { id: "d", text: "CDC uses machine learning to predict changes.", correct: false },
+    ],
+    explanation:
+      "CDC subscribes to the database's own replication stream (Postgres WAL, MySQL binlog, MongoDB oplog) — the same stream the database uses to keep replicas in sync. Every commit, including deletes and updates that don't bump a timestamp column, is captured as an event. Tools: Debezium (open-source), Fivetran/Airbyte (managed), AWS DMS, Snowflake streams. The cost is architectural — the source DBA has to enable replication — but it's the gold standard for incremental.",
+    sort_order: 6,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-movement-and-transformation",
+    prompt: "What's the conceptual inversion between software testing and data quality testing?",
+    options: [
+      { id: "a", text: "Data tests run faster than unit tests.", correct: false },
+      {
+        id: "b",
+        text: "In SWE the code is the variable and test data is held constant. In DE the transform code is often stable while the data changes every run — the data itself is the variable being tested.",
+        correct: true,
+      },
+      { id: "c", text: "Software tests check correctness; data tests check performance.", correct: false },
+      { id: "d", text: "There's no real difference — they're the same discipline.", correct: false },
+    ],
+    explanation:
+      "In software you assert that your code produces specific outputs from specific inputs. In data engineering you assert properties of the data flowing through — not-null, uniqueness, referential integrity, row counts within bounds, distribution shape — and you check them on every run, against production data. It's property-based testing merged with production observability. Tools like dbt tests, Great Expectations, and Soda specialize in this.",
+    sort_order: 7,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-movement-and-transformation",
+    prompt: "A row arrives in the silver layer that fails a not-null assertion on a required field. What's the dead-letter-queue (DLQ) pattern's response?",
+    options: [
+      { id: "a", text: "Fail the entire pipeline run; halt downstream.", correct: false },
+      {
+        id: "b",
+        text: "Route the bad row to a quarantine (DLQ) side table and let the rest of the rows continue. Alert on the quarantine's depth so someone investigates.",
+        correct: true,
+      },
+      { id: "c", text: "Silently drop the row.", correct: false },
+      { id: "d", text: "Patch the row's missing field with a default value.", correct: false },
+    ],
+    explanation:
+      "The DLQ pattern from messaging systems applied to data. Don't drop the bad row (you lose evidence) and don't fail the pipeline (you block all the good rows). Park the bad row in a quarantine table; alert on the depth. Combined with a circuit breaker at the silver→gold boundary, you keep good data flowing to consumers while preserving bad rows for inspection. (For critical data — e.g., financial transactions — you still fail loudly.)",
+    sort_order: 8,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-movement-and-transformation",
+    prompt: "Your team uses dbt with a layered DAG: staging → intermediate → mart. The Salesforce source changes a column name. Where does the ripple stop?",
+    options: [
+      { id: "a", text: "All downstream models break and need updating.", correct: false },
+      {
+        id: "b",
+        text: "At the single staging model that touches the Salesforce source. Business logic in intermediate and mart models is untouched.",
+        correct: true,
+      },
+      { id: "c", text: "At the orchestrator, which detects schema drift automatically.", correct: false },
+      { id: "d", text: "Nowhere — the change propagates everywhere.", correct: false },
+    ],
+    explanation:
+      "Staging models sit one-to-one with sources and are the *only* place that knows a source's quirks. When the source schema changes, you update the staging model to handle the rename, and downstream business logic doesn't need to change. This is the adapter pattern + dependency inversion applied to data: volatile source-specific code lives at the edges; stable business logic lives in the core.",
+    sort_order: 9,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-movement-and-transformation",
+    prompt: "When should you drop from declarative SQL transforms (dbt) to imperative code (Python/Spark)?",
+    options: [
+      { id: "a", text: "Whenever the team has Python experience.", correct: false },
+      {
+        id: "b",
+        text: "When the work needs control SQL can't express well — complex procedural logic, ML feature engineering, unstructured data parsing, external API calls.",
+        correct: true,
+      },
+      { id: "c", text: "When working with more than 100M rows.", correct: false },
+      { id: "d", text: "Always — SQL is too limited for modern pipelines.", correct: false },
+    ],
+    explanation:
+      "Prefer declarative SQL when the work fits — it's warehouse-native, version-controlled like code, accessible to analysts, and excellent for set-based relational work (joins, aggregations, window functions — the 80% case). Drop to imperative code when you need control declarative can't express. Real stacks freely mix both — Spark for heavy procedural ingestion, dbt SQL for the warehouse modeling layer. Same judgment as SQL-vs-hand-rolled or config-vs-code.",
+    sort_order: 10,
   },
 
   // ── Phase 4 ──────────────────────────────────────────
   {
     checkpoint_slug: "checkpoint-pipeline-orchestration-and-reliability",
-    prompt: "You discover last week's daily pipeline had a filter bug. Seven days of customer counts are wrong. What's the standard recovery?",
+    prompt: "What does the orchestrator (Airflow, Dagster, Prefect) actually do, in one line?",
     options: [
-      { id: "a", text: "Manually UPDATE the bad rows in the warehouse.", correct: false },
+      { id: "a", text: "It moves and transforms the data.", correct: false },
       {
         id: "b",
-        text: "Fix the code, then backfill the pipeline for the affected 7-day window.",
+        text: "It's the *control plane* — it decides what runs, in what order, when, what happens on failure, and whether the promises held. The data movement and transformation happens in the pipelines (the *data plane*).",
         correct: true,
       },
-      { id: "c", text: "Truncate the table and rebuild it from scratch.", correct: false },
-      { id: "d", text: "Issue a correction note and leave the data alone.", correct: false },
+      { id: "c", text: "It runs queries on the warehouse.", correct: false },
+      { id: "d", text: "It replaces dbt for transformations.", correct: false },
     ],
     explanation:
-      "Backfilling means re-running the pipeline against the affected partitions with the corrected logic. This is the standard recovery and depends on the pipeline being idempotent — re-running it overwrites the bad partitions cleanly.",
+      "Orchestrators are control planes: a build system + job scheduler + incident-response system fused into one. They don't move bytes — they coordinate the system of pipelines that do. Once you internalize the split (control plane / data plane), the rest of the phase (dependency management, retries, backfills, SLAs) is just the responsibilities of the control plane.",
     sort_order: 1,
   },
   {
     checkpoint_slug: "checkpoint-pipeline-orchestration-and-reliability",
-    prompt: "In a DAG, task C depends on both A and B. What does the scheduler guarantee?",
+    prompt: "Which orchestrator model has the DAG *inferred* from the assets and their inputs, rather than wired explicitly task-by-task?",
     options: [
-      { id: "a", text: "A, B, and C all run in parallel.", correct: false },
-      { id: "b", text: "C will not start until both A and B have completed successfully.", correct: true },
-      { id: "c", text: "A always runs before B.", correct: false },
-      { id: "d", text: "If C fails, A and B will be retried.", correct: false },
+      { id: "a", text: "Task-centric (Airflow's default model).", correct: false },
+      {
+        id: "b",
+        text: "Asset-centric (Dagster, dbt via `ref()`). The lineage graph emerges from declaring data assets and their inputs, the same way a build system infers the dependency tree from `import` statements.",
+        correct: true,
+      },
+      { id: "c", text: "Cron-style scheduling.", correct: false },
+      { id: "d", text: "Both are equally hand-wired.", correct: false },
     ],
     explanation:
-      "A DAG's edges express dependencies. A successor task starts only after all its predecessors complete successfully. Independent siblings (A and B here) can run in parallel — that's a major reason DAGs are useful.",
+      "Task-centric orchestration (Airflow's original model) makes you wire `task_a >> task_b` explicitly. Asset-centric orchestration (Dagster, dbt) makes you declare \"this asset is built from these inputs,\" and the framework infers the DAG. Inferred graphs can't drift out of sync with the code — that's the win. dbt's `ref()` is exactly this pattern for the warehouse modeling layer.",
     sort_order: 2,
+  },
+  {
+    checkpoint_slug: "checkpoint-pipeline-orchestration-and-reliability",
+    prompt: "What makes data DAG dependency management harder than build-system dependency management?",
+    options: [
+      { id: "a", text: "Nothing — they're the same problem.", correct: false },
+      {
+        id: "b",
+        text: "Data dependencies are time-partitioned (\"A's *data for 2026-06-01* is ready before B processes 2026-06-01\"), and dependencies often reach outside the graph (vendor files, external datasets) — handled by sensors.",
+        correct: true,
+      },
+      { id: "c", text: "Data graphs have cycles; build graphs don't.", correct: false },
+      { id: "d", text: "Data graphs use a different algorithm than topological sort.", correct: false },
+    ],
+    explanation:
+      "Topological sort works the same in both worlds. The data twists are (1) the dependency is per-partition, not just per-task — \"A's data for *this date* is ready before B processes *that date*\" — and (2) dependencies reach external systems (a vendor file, a dataset owned by another team), handled with sensors that block until the external thing exists.",
+    sort_order: 3,
+  },
+  {
+    checkpoint_slug: "checkpoint-pipeline-orchestration-and-reliability",
+    prompt: "Task A fails. Task B depends on A's output. What should the orchestrator do with B?",
+    options: [
+      { id: "a", text: "Run B anyway with whatever output A produced — keep the pipeline moving.", correct: false },
+      {
+        id: "b",
+        text: "Mark B as blocked (Airflow's `upstream_failed`) and do *not* run it. Better to be late with correct data than fast with broken data.",
+        correct: true,
+      },
+      { id: "c", text: "Retry A automatically forever.", correct: false },
+      { id: "d", text: "Skip A and continue.", correct: false },
+    ],
+    explanation:
+      "Failure propagation is the operational form of \"wrong is worse than late.\" If B runs on A's partial or missing output, the downstream report ends up subtly wrong — and that's worse than a delayed but correct one. This is what separates an orchestrator from a pile of cron jobs (which fire B at its scheduled minute regardless of whether A succeeded).",
+    sort_order: 4,
+  },
+  {
+    checkpoint_slug: "checkpoint-pipeline-orchestration-and-reliability",
+    prompt: "A transform uses `SELECT … , CURRENT_DATE - created_at AS days_since_created FROM …`. You backfill March 2024. What goes wrong?",
+    options: [
+      { id: "a", text: "Nothing — the calculation is straightforward.", correct: false },
+      {
+        id: "b",
+        text: "`CURRENT_DATE` is today, not the partition's logical date. The backfilled March rows get \"days since created\" measured from *today*, not from March 2024. The historical answer is wrong.",
+        correct: true,
+      },
+      { id: "c", text: "The backfill OOMs on Snowflake.", correct: false },
+      { id: "d", text: "The backfill duplicates rows.", correct: false },
+    ],
+    explanation:
+      "Using `CURRENT_DATE` or `now()` inside a transform breaks the \"pure function of time-partitioned input\" rule. When you re-run for March 2024, the transform sees today's date, not March's — so context from the future bleeds into the historical answer. The fix is to pass the *logical date* (the partition being processed) into the transform as a parameter, and use that instead.",
+    sort_order: 5,
+  },
+  {
+    checkpoint_slug: "checkpoint-pipeline-orchestration-and-reliability",
+    prompt: "What makes a pipeline *safely* backfillable?",
+    options: [
+      { id: "a", text: "Running it in a separate test environment first.", correct: false },
+      {
+        id: "b",
+        text: "Idempotency. Re-running the same partition must overwrite cleanly rather than double-count, and the transform must be a pure function of its time-partitioned input (no `now()`, no current-state lookups).",
+        correct: true,
+      },
+      { id: "c", text: "Storing checkpoints in a metadata table.", correct: false },
+      { id: "d", text: "Running the backfill at night.", correct: false },
+    ],
+    explanation:
+      "Idempotency is the precondition that makes backfill *safe*. Re-run March 2024 → same March 2024 output. That requires (a) partition overwrite or MERGE on a stable key (so reruns don't append), and (b) deterministic transforms (no current-state pollution). A non-idempotent pipeline simply cannot be backfilled safely.",
+    sort_order: 6,
+  },
+  {
+    checkpoint_slug: "checkpoint-pipeline-orchestration-and-reliability",
+    prompt: "A single malformed row arrives in an otherwise-good batch of 100M events. What's the right pattern?",
+    options: [
+      { id: "a", text: "Fail the entire batch; halt downstream.", correct: false },
+      {
+        id: "b",
+        text: "Quarantine the bad row to a dead-letter queue (a side table or `s3://orders_dlq/`); let the other 99,999,999 rows through. Alert on the DLQ's depth so someone investigates.",
+        correct: true,
+      },
+      { id: "c", text: "Silently drop the bad row.", correct: false },
+      { id: "d", text: "Retry the row indefinitely until it succeeds.", correct: false },
+    ],
+    explanation:
+      "The DLQ pattern from messaging systems applied to data records. Failing the whole batch wastes the good 99,999,999 rows. Dropping silently loses evidence. Quarantining preserves the bad data for inspection and replay while keeping the pipeline making progress. Alert on the quarantine's depth — if it grows, something upstream changed.",
+    sort_order: 7,
+  },
+  {
+    checkpoint_slug: "checkpoint-pipeline-orchestration-and-reliability",
+    prompt: "Your data team is paging the on-call engineer 3–4 times every night for retried-and-succeeded transient task failures. What's the right response?",
+    options: [
+      { id: "a", text: "Hire more on-call engineers to handle the volume.", correct: false },
+      {
+        id: "b",
+        text: "Alert fatigue. Tune retries to absorb transient failures silently. Only page a human when retries are exhausted *and* the failure affects an SLA-tracked dataset. Separate \"page now\" from \"open a ticket.\"",
+        correct: true,
+      },
+      { id: "c", text: "Turn off retries.", correct: false },
+      { id: "d", text: "Move all pipelines to a single DAG so there's less to alert on.", correct: false },
+    ],
+    explanation:
+      "Alert fatigue is the dominant operational risk once pipelines run unattended. Transient failures (network blips, source-DB hiccups) are constant — they should be retried, then forgotten. A human should be paged only when the retries fail AND a meaningful SLA is at risk. Distinguishing transient/permanent and \"page now\" / \"open a ticket\" is half the job.",
+    sort_order: 8,
+  },
+  {
+    checkpoint_slug: "checkpoint-pipeline-orchestration-and-reliability",
+    prompt: "What's the most important way a data SLA differs from a typical API SLA?",
+    options: [
+      { id: "a", text: "Data SLAs use a different SLI/SLO/SLA vocabulary.", correct: false },
+      {
+        id: "b",
+        text: "Data SLAs are two-dimensional — freshness *and* completeness — where API SLAs are mostly one-dimensional (availability + latency). A dataset can be perfectly \"up\" and still violate its SLA by being stale or partial.",
+        correct: true,
+      },
+      { id: "c", text: "Data SLAs don't apply during business hours.", correct: false },
+      { id: "d", text: "API SLAs are stricter.", correct: false },
+    ],
+    explanation:
+      "An API SLA is mostly about availability and latency — the response was returned within the budget. A data SLA has freshness (how recent is the data?) AND completeness (are all expected rows here, are quality checks passing?). The failure mode with no clean API analogue: the table exists, queries return instantly, but the data is stale or partial. Availability doesn't imply correctness.",
+    sort_order: 9,
+  },
+  {
+    checkpoint_slug: "checkpoint-pipeline-orchestration-and-reliability",
+    prompt: "What does it mean to declare a *freshness policy on an asset* rather than an *SLA on a job*?",
+    options: [
+      { id: "a", text: "The job is no longer monitored.", correct: false },
+      {
+        id: "b",
+        text: "You promise that the *data* (e.g., the `orders` mart) is no older than X hours, continuously checked — decoupled from whether any particular job ran or succeeded. Asset-centric tools (Dagster) can compute this and alert proactively.",
+        correct: true,
+      },
+      { id: "c", text: "Only the asset's owner gets paged, not the on-call.", correct: false },
+      { id: "d", text: "Freshness policies replace error budgets.", correct: false },
+    ],
+    explanation:
+      "Job-level SLAs ask \"did this job finish on time?\" Asset-level freshness policies ask \"is this data current?\" — the contract is about the outcome, not the work. A job can succeed but produce stale data (an upstream sensor never fired), or the job can fail but the asset is still fresh enough (a recent earlier run produced good data). Asset-level freshness aligns with the consumer's real need — and matches the SRE shift from monitoring deploys to monitoring user-facing SLOs.",
+    sort_order: 10,
   },
 
   // ── Phase 5 ──────────────────────────────────────────

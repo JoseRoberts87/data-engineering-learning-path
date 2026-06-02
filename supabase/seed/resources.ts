@@ -209,4 +209,154 @@ export const resources: ResourceSeed[] = [
     url: "https://danlinstedt.com/solutions-2/data-vault-basics/",
     resource_type: "article",
   },
+
+  // ── Phase 3 ──────────────────────────────────────────
+  // etl-vs-elt
+  {
+    concept_slug: "etl-vs-elt",
+    title: "Fivetran — ETL vs ELT explained",
+    url: "https://www.fivetran.com/learn/etl-vs-elt",
+    resource_type: "article",
+  },
+  {
+    concept_slug: "etl-vs-elt",
+    title: "dbt — \"What, exactly, is dbt?\" (the modern ELT thesis)",
+    url: "https://www.getdbt.com/blog/what-exactly-is-dbt",
+    resource_type: "article",
+  },
+
+  // idempotency
+  {
+    concept_slug: "idempotency",
+    title: "dbt — Incremental strategies (merge, delete+insert, insert_overwrite)",
+    url: "https://docs.getdbt.com/docs/build/incremental-strategy",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "idempotency",
+    title: "Snowflake — MERGE statement reference",
+    url: "https://docs.snowflake.com/en/sql-reference/sql/merge",
+    resource_type: "docs",
+  },
+
+  // incremental-vs-full-loads
+  {
+    concept_slug: "incremental-vs-full-loads",
+    title: "dbt — Incremental models",
+    url: "https://docs.getdbt.com/docs/build/incremental-models",
+    resource_type: "docs",
+  },
+
+  // change-data-capture
+  {
+    concept_slug: "change-data-capture",
+    title: "Confluent — What is Change Data Capture?",
+    url: "https://www.confluent.io/learn/change-data-capture/",
+    resource_type: "article",
+  },
+  {
+    concept_slug: "change-data-capture",
+    title: "Debezium — open-source CDC platform documentation",
+    url: "https://debezium.io/documentation/reference/stable/",
+    resource_type: "docs",
+  },
+
+  // data-quality-as-tests
+  {
+    concept_slug: "data-quality-as-tests",
+    title: "dbt — Data tests",
+    url: "https://docs.getdbt.com/docs/build/data-tests",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "data-quality-as-tests",
+    title: "Great Expectations — documentation",
+    url: "https://docs.greatexpectations.io/",
+    resource_type: "docs",
+  },
+
+  // transformation-layering
+  {
+    concept_slug: "transformation-layering",
+    title: "dbt — How we structure our dbt projects (staging → intermediate → marts)",
+    url: "https://docs.getdbt.com/best-practices/how-we-structure/1-guide-overview",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "transformation-layering",
+    title: "dbt — Staging models (the source-adapter layer)",
+    url: "https://docs.getdbt.com/best-practices/how-we-structure/2-staging",
+    resource_type: "docs",
+  },
+
+  // ── Phase 4 ──────────────────────────────────────────
+  // dags
+  {
+    concept_slug: "dags",
+    title: "Apache Airflow — Core Concepts (DAGs, tasks, dependencies)",
+    url: "https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/index.html",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "dags",
+    title: "Dagster — Software-Defined Assets (asset-centric orchestration)",
+    url: "https://dagster.io/blog/software-defined-assets",
+    resource_type: "article",
+  },
+
+  // dependency-management
+  {
+    concept_slug: "dependency-management",
+    title: "Apache Airflow — Sensors (waiting on external events)",
+    url: "https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/sensors.html",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "dependency-management",
+    title: "Prefect — Concepts overview",
+    url: "https://docs.prefect.io/",
+    resource_type: "docs",
+  },
+
+  // backfilling
+  {
+    concept_slug: "backfilling",
+    title: "Apache Airflow — DAG Runs and Backfill",
+    url: "https://airflow.apache.org/docs/apache-airflow/stable/dag-run.html",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "backfilling",
+    title: "dbt — Incremental models (backfill semantics)",
+    url: "https://docs.getdbt.com/docs/build/incremental-models",
+    resource_type: "docs",
+  },
+
+  // failure-modes
+  {
+    concept_slug: "failure-modes",
+    title: "Apache Airflow — Tasks (retries, callbacks, trigger rules)",
+    url: "https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/tasks.html",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "failure-modes",
+    title: "Google SRE Book — Handling Overload (graceful degradation, load shedding)",
+    url: "https://sre.google/sre-book/handling-overload/",
+    resource_type: "book",
+  },
+
+  // sla-for-data
+  {
+    concept_slug: "sla-for-data",
+    title: "Google SRE Book — Service Level Objectives (SLI / SLO / SLA)",
+    url: "https://sre.google/sre-book/service-level-objectives/",
+    resource_type: "book",
+  },
+  {
+    concept_slug: "sla-for-data",
+    title: "Apache Airflow — DAG-level SLAs (`sla` parameter, `sla_miss_callback`)",
+    url: "https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/dags.html",
+    resource_type: "docs",
+  },
 ];

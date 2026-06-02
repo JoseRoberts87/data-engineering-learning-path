@@ -238,42 +238,112 @@ export const concepts: ConceptSeed[] = [
     phase_slug: "data-movement-and-transformation",
     title: "ETL vs. ELT",
     description:
-      "ETL transforms data before loading it into the warehouse; ELT loads it raw and transforms inside the warehouse. ELT is the modern default because re-deriving curated tables from raw data is cheap when the warehouse provides the compute.",
+      "Both describe the same three verbs in different order. **ETL** (Extract → Transform → Load) transforms in a dedicated processing tier *before* the data lands in the destination — historically a separate ETL server or Spark cluster. **ELT** (Extract → Load → Transform) lands raw data in the warehouse first, then transforms it *in place* using the warehouse's own compute, typically SQL via dbt. The industry shifted hard from ETL to ELT for one structural reason: cloud warehouses (Snowflake, BigQuery) decoupled storage from compute and made both cheap and elastic. Landing all the raw data first became affordable, and warehouse compute became powerful enough to transform in place. The big payoff of ELT: you keep the raw layer as your source of truth, so when a transform turns out to be buggy you re-derive from raw without re-extracting from a source that may be rate-limited, mutable, or gone. ETL still wins when you must mask or drop PII before it lands, or when a transformation is too heavy or procedural to express well in SQL.",
     swe_analogy:
-      "Whether to preprocess in middleware or store raw and shape it at read time. ELT favors the latter — cheaper iteration, easier debugging, fewer brittle preprocessing stages.",
+      "Data gravity. Rather than hauling data out to where your transformation code lives, you move the code to where the data already sits and run it on the elastic engine that's right there. Same instinct as a stored procedure for warehouse-native work vs an external service for procedural complexity.",
     sort_order: 1,
   },
   {
     slug: "idempotency",
     phase_slug: "data-movement-and-transformation",
-    title: "Idempotency",
+    title: "Idempotency — the patterns",
     description:
-      "A pipeline is idempotent when running it twice yields the same result as running it once. This is required for safe retries, partial failure recovery, and backfills. Typically achieved by merge-on-key writes, deterministic partition replacement, or transactional swaps.",
+      "Pipelines get re-run constantly — 3 AM failures, code fixes, backfills, late-arriving data, manual reruns. A non-idempotent pipeline doesn't just fail, it accumulates corruption: every rerun adds another copy of yesterday's revenue. The concrete patterns: **upsert / MERGE on a stable business key** so a second run updates rather than duplicates. **Partition overwrite** — a daily job writes to the `date=2026-06-01` partition and a rerun replaces that partition wholesale (the cleanest idempotency primitive in batch). Alongside those mechanics, your transforms must be **deterministic**: no `now()` baked into a row's content, no dependence on processing order, no per-run random IDs. Same input → same output. (Phase 1's `idempotency-as-mindset` frames the *why*; this is the *how*.)",
     swe_analogy:
-      "The same property you want from a PUT or DELETE endpoint. Without it, every retry risks corrupting the dataset — and retries are not optional in distributed systems.",
+      "PUT, not POST. A PUT produces the same end state regardless of how many times you call it; a naive POST that appends creates a duplicate each time. \"Exactly-once\" delivery is mostly a myth — what you actually build is **at-least-once delivery + idempotent writes = effectively once**. Same mindset as Terraform or Kubernetes: stop writing imperative \"append this event\" scripts; declare a desired end state and let the reconciling write converge to it.",
     sort_order: 2,
+  },
+  {
+    slug: "incremental-vs-full-loads",
+    phase_slug: "data-movement-and-transformation",
+    title: "Incremental vs. full loads",
+    description:
+      "A **full load** reprocesses everything every run — truncate and reload, or rebuild the whole table. Simple, self-healing (each run is authoritative, so drift is impossible), trivially idempotent. Its only flaw is that cost and runtime scale with total data size; it stops being viable at billions of rows or high run frequency. An **incremental load** processes only what changed since the last run — a delta — dramatically cheaper at scale and enabling frequent runs, at the price of real complexity. The danger is *silent drift*: if your watermark (typically `updated_at` or a monotonically increasing id) catches inserts but a source row is *updated* late — or *hard-deleted* — your incremental table quietly diverges from reality and nobody gets an error. The defenses: periodic full-reload reconciliation to heal drift, or Change Data Capture (CDC). Common pattern in practice: full loads for small dimensions, incremental for the giant fact and event tables.",
+    swe_analogy:
+      "`git pull` vs `git clone`. Incremental is git pull fetching only new commits since a known ref; full load is a fresh clone. The analogy also exposes the danger: a diff is only correct if you have a correct notion of \"since when\" — and a watermark on `updated_at` doesn't catch deletes or late updates whose timestamp slipped behind your last run.",
+    sort_order: 3,
+  },
+  {
+    slug: "change-data-capture",
+    phase_slug: "data-movement-and-transformation",
+    title: "Change Data Capture (CDC)",
+    description:
+      "The gold-standard incremental pattern. Instead of polling a source table with `WHERE updated_at > :watermark` and hoping you catch every change, CDC reads the source database's *write-ahead log* (Postgres WAL, MySQL binlog, MongoDB oplog) and streams every insert, update, and delete as an event. Why this matters: naive watermarking misses *deletes* entirely (a deleted row has no `updated_at` greater than your watermark) and mishandles late updates whose timestamps fall behind. CDC sees every change as the database commits it — the downstream warehouse replays the same insert/update/delete sequence and stays in lockstep. Tools: Debezium (open-source, Kafka-based), Fivetran or Airbyte (managed), AWS DMS, Snowflake's native streams. The cost: CDC requires source-DB cooperation (replication slot, binlog access) — it's an architectural commitment, not just a query change.",
+    swe_analogy:
+      "Event sourcing applied to a database that wasn't designed for it. Instead of polling for state, you subscribe to the stream of state-change events the database is already producing internally for its own replication. The warehouse becomes a read-replica that can rewrite history.",
+    sort_order: 4,
+  },
+  {
+    slug: "data-quality-as-tests",
+    phase_slug: "data-movement-and-transformation",
+    title: "Data quality as tests — the data is the variable, not the code",
+    description:
+      "Conceptual inversion from software testing: in SWE you test code against fixed inputs — the code is the variable, test data is held constant. In DE the transform code is often stable while the data itself changes every single run — *the data is the variable, and it's the thing most likely to break you*. So you test the data flowing through, not only the logic. Two layers: ordinary unit tests on transform logic (given these sample rows, does the SQL produce the expected output?), and **assertions on the actual data each run** — not-null, uniqueness, accepted values, referential integrity, row counts within expected bounds, freshness, distribution/anomaly checks. dbt tests, Great Expectations, and Soda exist for exactly this. Two design choices that matter: **where to test** — at layer boundaries (bronze→silver and silver→gold) so corruption is caught early; and **what to do with bad rows** — fail the whole pipeline for critical data, or quarantine bad rows to a side table (the dead-letter-queue pattern from messaging). Quality tests also act as a *circuit breaker*: blocking bad data from reaching consumers, because wrong is worse than late.",
+    swe_analogy:
+      "Property-based testing (QuickCheck, fast-check) merged with production observability. You assert on the *shape* of the data — not specific values — then watch the assertions every run. The DLQ pattern is the same one you'd use for a Kafka consumer: park the bad messages, ack the rest, alert on the queue depth.",
+    sort_order: 5,
+  },
+  {
+    slug: "transformation-layering",
+    phase_slug: "data-movement-and-transformation",
+    title: "Transformation logic — declarative vs imperative, layered DAGs",
+    description:
+      "Two related decisions. First, **SQL-based vs code-based transforms.** SQL-based (dbt as the archetype) expresses each transform as a SELECT, wires the models into a dependency DAG, and version-controls, tests, and documents them. Declarative, warehouse-native for ELT, accessible to analysts, excellent for the set-based relational work (joins, aggregations, window functions) that is the 80% case. Code-based (Python, Spark) is imperative and fully expressive: complex procedural logic, ML feature engineering, unstructured data, custom parsing, external API calls. Prefer declarative when the work fits; drop to imperative when you need control declarative can't express. Real stacks mix both freely. Second, **separating raw from curated**: organize the DAG as **staging → intermediate → mart**. Staging models sit one-to-one with sources and do only light cleanup (rename, cast, dedupe) — the *only* place that knows a given source's quirks. Intermediate models hold business logic. Mart models are the consumer-facing products. When a source changes schema, the ripple stops at one staging model.",
+    swe_analogy:
+      "**SQL vs code**: same judgment as SQL-vs-hand-rolled or config-vs-code. Prefer declarative when the work fits; drop to imperative when you need control. **Staging → intermediate → mart**: the **adapter pattern + dependency inversion** applied to data. Push volatile, source-specific code out to the edges; keep stable business logic in the core. The transformation DAG of small testable nodes (rather than one monolithic script) is also what lets the orchestrator parallelize work and rebuild any subtree on demand.",
+    sort_order: 6,
   },
 
   // Phase 4
   {
     slug: "dags",
     phase_slug: "pipeline-orchestration-and-reliability",
-    title: "DAGs (directed acyclic graphs)",
+    title: "DAGs — the control plane for data",
     description:
-      "Pipelines are modeled as DAGs — tasks are nodes, dependencies are edges. The scheduler walks the graph in topological order: a task starts only when all its predecessors have completed successfully. Independent siblings run in parallel.",
+      "A DAG (Directed Acyclic Graph) is just tasks plus directed edges with no cycles. From that single structure you get three things for free: a valid execution order (topological sort), the independent branches you can run in parallel, and the minimal set of downstream nodes to rebuild when something upstream changes — the same incremental-build logic as Make or Bazel. The DAG encodes \"what must happen before what,\" nothing else. Two flavors of how the graph comes to exist: **task-centric** (Airflow — you wire dependencies explicitly) and **asset-centric** (Dagster — you declare data assets and their inputs, framework infers the DAG; dbt does the same via `ref()`). Inferred graphs can't drift out of sync with the code the way hand-maintained ones can. The orchestrator running over this DAG is a **control plane** — it doesn't move or transform data (pipelines do that, the data plane); it decides what runs, in what order, when, what happens on failure, and whether the promises held.",
     swe_analogy:
-      "Like a build dependency tree — Makefile, Bazel, your CI's job graph. The data twist: the same DAG re-executes for each time partition (every hour, every day), and runs can be backfilled.",
+      "A build dependency tree with a time axis. Bazel/Make + cron + incident-response, fused into one system. The asset-centric model is the same idea as a build system that infers dependencies from `#include` or `import` statements rather than making you draw them by hand.",
     sort_order: 1,
+  },
+  {
+    slug: "dependency-management",
+    phase_slug: "pipeline-orchestration-and-reliability",
+    title: "Dependency management — topological ordering with a time axis",
+    description:
+      "Topological sort is the core algorithm: linearize the graph so every task runs after its dependencies; run independent subtrees in parallel. Identical to what a package manager does for install order or what a module loader does for imports. Two things make data dependency harder than a build. First, the dependency is **data-aware and time-partitioned**: \"A's *data for 2026-06-01* is ready before B processes 2026-06-01\" — not \"A's process exited before B's started.\" Modern orchestrators model this directly. Second, dependencies reach **outside the graph**: B might wait on a vendor file landing at 6 AM or on a dataset owned by another team — handled with **sensors** that block until the external thing exists (event-driven dependency layered on top of schedule-driven). The single most important behavior, and the reason orchestrators exist at all, is **failure propagation**: if A fails, the orchestrator marks everything downstream of A as blocked rather than letting it run on missing or stale data. That's the operational form of \"wrong is worse than late.\"",
+    swe_analogy:
+      "Same topological sort a package manager uses. The novel parts: the time axis (dependencies are per-partition, not just per-task), and sensors as a first-class scheduling primitive — the equivalent of waiting for an external service health check before starting your own work, elevated to part of the dependency graph.",
+    sort_order: 2,
   },
   {
     slug: "backfilling",
     phase_slug: "pipeline-orchestration-and-reliability",
     title: "Backfilling",
     description:
-      "Re-running a pipeline against a historical window to fix bugs, populate a new derived table, or recover from data-quality issues. Often a much larger job than a single daily run, and only safe if the pipeline is idempotent.",
+      "Backfilling is running a pipeline over *past* time periods: to populate a new table with history, to recover from a bug that corrupted prior data, or to fill a gap left by a missed run. A first-class, frequent operation in DE — almost nonexistent in request/response software — because pipelines are partitioned by time and the same logic applies to any period. What makes backfilling **safe** is the entire payoff of Phase 3's idempotency work: re-running 2026-03-01 must overwrite that partition cleanly rather than double-count. Orchestrators parametrize every run by a **logical date** (the partition being processed, distinct from the wall-clock time the job happens to run), so the same DAG executes for any date by passing the date in. **The subtle trap:** correct backfilling requires the transform be a *pure function* of its time-partitioned input. If a transform uses current state — today's exchange rate, the customer's *present* city, `now()` stamped into a row — backfilling March applies June's context to March's data and produces wrong history. This is the operational reason point-in-time correctness and Type-2 SCDs from Phase 2 matter.",
     swe_analogy:
-      "Like replaying an event log to rebuild a projection. The catch: the schema and code may have evolved since the original window, so the backfill needs to handle both old and new shapes.",
-    sort_order: 2,
+      "Replaying an event log against corrected code. Or: re-running a build for an old commit hash. The transform must be a pure function of its inputs — using `now()` inside a transform is the data equivalent of `Date.now()` in a unit test: a bug waiting to fire on the next backfill.",
+    sort_order: 3,
+  },
+  {
+    slug: "failure-modes",
+    phase_slug: "pipeline-orchestration-and-reliability",
+    title: "Failure modes — the distributed-systems resilience toolkit",
+    description:
+      "Pipelines run unattended every night across hundreds of jobs. Failure isn't exceptional — it's constant. The toolkit maps one-to-one onto distributed-systems patterns. **Retries** handle transient failures (source DB blip, network timeout, momentary contention) — automatic with exponential backoff up to a max. Non-negotiable precondition: idempotency. A retry after a partial write is only safe if re-running converges to the same correct state. Distinguish transient (retry) from permanent (a logic bug or genuinely bad data — fail fast and surface). **Dead-letter queues** handle bad *records* rather than failed *jobs*: an unparseable row routes to a quarantine table; the pipeline keeps making progress with the good rows. Same DLQ pattern as message queues. **Alerting** has a data-specific twist: two distinct failure classes — jobs that error/time-out, and *silent* ones (data arrived but late, incomplete, or wrong; a green run will never reveal this on its own). Both need alerts, but the second requires freshness and quality checks layered on top of mere job success. The hard operational problem is **alert fatigue**: tune retries to absorb transient noise so a human is only paged for something actionable; separate \"page on-call now\" from \"open a ticket.\" The rest of the kit — timeouts, circuit breakers, graceful degradation, isolation — is the same one you'd assemble for microservices.",
+    swe_analogy:
+      "The same resilience toolkit a senior backend engineer reaches for: retries with exponential backoff, DLQ from messaging, circuit breakers, bulkheads (isolation), graceful degradation (serve last-known-good), timeouts. The new wrinkle: data failures can be *silent* — a green pipeline that shipped bad numbers needs different alerting than a service returning 500.",
+    sort_order: 4,
+  },
+  {
+    slug: "sla-for-data",
+    phase_slug: "pipeline-orchestration-and-reliability",
+    title: "SLAs for data — freshness and completeness, not just uptime",
+    description:
+      "An API SLA is mostly one-dimensional: availability and latency. A data SLA has **two** dimensions: **freshness** (the data is no older than X — \"yesterday's sales available by 8 AM\") and **completeness** (everything expected is present and valid — no missing partitions, row counts in range, quality checks passing). The failure mode with no clean API analogue: a dataset can be perfectly \"up\" (the table exists, queries return instantly) and still violate its SLA by being stale or partial. Availability doesn't imply correctness. SRE vocabulary carries straight over: the **SLI** is the measured signal (actual lag, percent of rows passing checks), the **SLO** is your internal target, the **SLA** is the promise to consumers. Enforcement is increasingly *proactive*: orchestrators alert when a run is *trending* late before it has failed; asset-centric tools let you declare a **freshness policy** on the data itself (\"the orders mart must be under 24 hours old\") and continuously check it — decoupling the guarantee from any single job's success. You're promising an outcome about the **data**, not about a **job**. The honest version is the **error-budget mindset**: don't promise perfection; define acceptable freshness and completeness, measure it, spend reliability effort against the budget.",
+    swe_analogy:
+      "SRE's SLI/SLO/SLA model applied to information. The key shift: availability ≠ correctness. A green pipeline serving stale data is the data equivalent of a service that returns 200 OK with the wrong body. Asset-level freshness policies are the same idea as SLOs on user-facing endpoints rather than on internal service uptime.",
+    sort_order: 5,
   },
 
   // Phase 5
