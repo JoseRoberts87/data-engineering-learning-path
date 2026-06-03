@@ -359,4 +359,178 @@ export const resources: ResourceSeed[] = [
     url: "https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/dags.html",
     resource_type: "docs",
   },
+
+  // ── Phase 5 ──────────────────────────────────────────
+  // event-streams
+  {
+    concept_slug: "event-streams",
+    title: "Apache Kafka — Documentation (the canonical event-log)",
+    url: "https://kafka.apache.org/documentation/",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "event-streams",
+    title: "Jay Kreps — \"The Log: What every software engineer should know about real-time data's unifying abstraction\"",
+    url: "https://engineering.linkedin.com/distributed-systems/log-what-every-software-engineer-should-know-about-real-time-datas-unifying",
+    resource_type: "article",
+  },
+
+  // stream-processing
+  {
+    concept_slug: "stream-processing",
+    title: "Apache Flink — Concepts (DataStream API, stateful processing)",
+    url: "https://nightlies.apache.org/flink/flink-docs-master/docs/concepts/overview/",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "stream-processing",
+    title: "Apache Spark — Structured Streaming Programming Guide",
+    url: "https://spark.apache.org/docs/latest/structured-streaming-programming-guide.html",
+    resource_type: "docs",
+  },
+
+  // windowing
+  {
+    concept_slug: "windowing",
+    title: "Apache Flink — Windows (tumbling, sliding, session)",
+    url: "https://nightlies.apache.org/flink/flink-docs-master/docs/dev/datastream/operators/windows/",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "windowing",
+    title: "Streaming Systems — Akidau, Chernyak, Lax (O'Reilly book)",
+    url: "https://www.oreilly.com/library/view/streaming-systems/9781491983867/",
+    resource_type: "book",
+  },
+
+  // time-and-ordering
+  {
+    concept_slug: "time-and-ordering",
+    title: "Apache Flink — Time, Watermarks, and Lateness",
+    url: "https://nightlies.apache.org/flink/flink-docs-master/docs/concepts/time/",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "time-and-ordering",
+    title: "Tyler Akidau — \"The Dataflow Model\" (event time + watermarks, original paper)",
+    url: "https://research.google/pubs/the-dataflow-model-a-practical-approach-to-balancing-correctness-latency-and-cost-in-massive-scale-unbounded-out-of-order-data-processing/",
+    resource_type: "article",
+  },
+
+  // delivery-semantics
+  {
+    concept_slug: "delivery-semantics",
+    title: "Confluent — Exactly-Once Semantics in Apache Kafka",
+    url: "https://www.confluent.io/blog/exactly-once-semantics-are-possible-heres-how-apache-kafka-does-it/",
+    resource_type: "article",
+  },
+  {
+    concept_slug: "delivery-semantics",
+    title: "Apache Flink — End-to-End Exactly-Once Processing with Apache Kafka",
+    url: "https://flink.apache.org/2018/02/28/an-overview-of-end-to-end-exactly-once-processing-in-apache-flink-with-apache-kafka-too/",
+    resource_type: "article",
+  },
+
+  // state-management-in-streams
+  {
+    concept_slug: "state-management-in-streams",
+    title: "Apache Flink — Stateful Stream Processing",
+    url: "https://nightlies.apache.org/flink/flink-docs-master/docs/concepts/stateful-stream-processing/",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "state-management-in-streams",
+    title: "Apache Flink — Checkpointing (distributed snapshots, Chandy-Lamport)",
+    url: "https://nightlies.apache.org/flink/flink-docs-master/docs/ops/state/checkpoints/",
+    resource_type: "docs",
+  },
+
+  // ── Phase 6 ──────────────────────────────────────────
+  // columnar-vs-row-storage
+  {
+    concept_slug: "columnar-vs-row-storage",
+    title: "Apache Parquet — Documentation (file format, encodings, row groups)",
+    url: "https://parquet.apache.org/docs/",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "columnar-vs-row-storage",
+    title: "Apache Arrow — Columnar Format Specification",
+    url: "https://arrow.apache.org/docs/format/Columnar.html",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "columnar-vs-row-storage",
+    title: "Daniel Abadi — \"Column-Stores vs. Row-Stores: How Different Are They Really?\" (foundational paper)",
+    url: "https://15721.courses.cs.cmu.edu/spring2017/papers/15-vectorization2/p967-abadi.pdf",
+    resource_type: "article",
+  },
+
+  // partitioning-and-clustering
+  {
+    concept_slug: "partitioning-and-clustering",
+    title: "BigQuery — Partitioned and Clustered Tables (when to use which)",
+    url: "https://cloud.google.com/bigquery/docs/partitioned-tables",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "partitioning-and-clustering",
+    title: "Delta Lake — Z-Ordering (multi-dimensional clustering)",
+    url: "https://docs.delta.io/latest/optimizations-oss.html#z-ordering-multi-dimensional-clustering",
+    resource_type: "docs",
+  },
+
+  // distributed-compute-and-shuffle
+  {
+    concept_slug: "distributed-compute-and-shuffle",
+    title: "Apache Spark — Performance Tuning (broadcast joins, shuffle, skew handling)",
+    url: "https://spark.apache.org/docs/latest/sql-performance-tuning.html",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "distributed-compute-and-shuffle",
+    title: "Dean & Ghemawat — \"MapReduce: Simplified Data Processing on Large Clusters\" (original Google paper)",
+    url: "https://research.google/pubs/mapreduce-simplified-data-processing-on-large-clusters/",
+    resource_type: "article",
+  },
+  {
+    concept_slug: "distributed-compute-and-shuffle",
+    title: "Trino — Query Execution and the Cost of Shuffles",
+    url: "https://trino.io/docs/current/optimizer.html",
+    resource_type: "docs",
+  },
+
+  // data-lake-warehouse-lakehouse
+  {
+    concept_slug: "data-lake-warehouse-lakehouse",
+    title: "Apache Iceberg — Documentation (table format spec, time travel, schema evolution)",
+    url: "https://iceberg.apache.org/docs/latest/",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "data-lake-warehouse-lakehouse",
+    title: "Delta Lake — Documentation (transaction log, ACID, time travel)",
+    url: "https://docs.delta.io/latest/index.html",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "data-lake-warehouse-lakehouse",
+    title: "Databricks — \"Lakehouse: A New Generation of Open Platforms\" (CIDR 2021 paper)",
+    url: "https://www.cidrdb.org/cidr2021/papers/cidr2021_paper17.pdf",
+    resource_type: "article",
+  },
+
+  // cost-as-performance
+  {
+    concept_slug: "cost-as-performance",
+    title: "Google BigQuery — Pricing (per-byte-scanned model)",
+    url: "https://cloud.google.com/bigquery/pricing",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "cost-as-performance",
+    title: "Snowflake — Understanding Compute Cost (credits per warehouse-hour)",
+    url: "https://docs.snowflake.com/en/user-guide/cost-understanding-compute",
+    resource_type: "docs",
+  },
 ];

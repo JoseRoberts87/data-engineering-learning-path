@@ -770,65 +770,345 @@ export const questions: QuestionSeed[] = [
   // ── Phase 5 ──────────────────────────────────────────
   {
     checkpoint_slug: "checkpoint-streaming-and-event-driven-data",
-    prompt: "An IoT device has a wrong clock and emits events timestamped 'yesterday'. Your stream pipeline aggregates per-hour metrics by event time. What happens?",
+    prompt: "What's the fundamental difference between a Kafka topic and a traditional message queue like RabbitMQ?",
     options: [
-      { id: "a", text: "The events are silently dropped.", correct: false },
+      { id: "a", text: "Kafka is faster.", correct: false },
       {
         id: "b",
-        text: "The events update yesterday's hourly buckets — they're late-arriving data.",
+        text: "Kafka is a durable, append-only log: messages are retained for a retention period and each consumer tracks its own offset. A traditional queue deletes messages once consumed — there's no replay, no independent fan-out.",
         correct: true,
       },
-      { id: "c", text: "The pipeline crashes.", correct: false },
-      { id: "d", text: "The events get reassigned to today's window.", correct: false },
+      { id: "c", text: "Kafka uses TCP; queues use HTTP.", correct: false },
+      { id: "d", text: "Queues are immutable; Kafka topics can be mutated.", correct: false },
     ],
     explanation:
-      "Event-time stream processing groups events by when they happened, not when they arrived, so late events update historical windows. Production systems use watermarks to bound how long a window stays open before it's considered final.",
+      "The log abstraction is the foundation of modern streaming. A queue treats messages as consume-once-and-delete. A log retains messages by retention period regardless of who has read them; each consumer holds an offset (a read pointer); multiple consumer groups can read the same log at their own pace. That single design choice unlocks replayability, independent fan-out, and graceful decoupling between producers and consumers.",
     sort_order: 1,
   },
   {
     checkpoint_slug: "checkpoint-streaming-and-event-driven-data",
-    prompt: "Why are streaming systems usually built around an append-only log instead of a mutable queue?",
+    prompt: "What ordering guarantee does a partitioned Kafka topic actually provide?",
     options: [
-      { id: "a", text: "Append-only logs are cheaper to store.", correct: false },
+      { id: "a", text: "Total global ordering across all events.", correct: false },
       {
         id: "b",
-        text: "Multiple consumers can replay independently from any offset.",
+        text: "Ordering is guaranteed *within a partition*, not globally. Messages sharing a key (e.g., `user_id`) land on the same partition and stay ordered relative to each other; there's no total order across partitions.",
         correct: true,
       },
-      { id: "c", text: "Append-only logs don't need ordering guarantees.", correct: false },
-      { id: "d", text: "Mutable queues can't handle high throughput.", correct: false },
+      { id: "c", text: "No ordering — Kafka is unordered.", correct: false },
+      { id: "d", text: "Ordering is guaranteed across partitions but not within them.", correct: false },
     ],
     explanation:
-      "A traditional queue deletes messages when they're consumed. An append-only log keeps history, so each consumer tracks its own offset and can replay from any point — essential for adding new consumers, recovering from bugs, and bootstrapping new analytical views.",
+      "Partitioning is the standard sharding trade-off: surrender global ordering to gain horizontal scale. Messages with the same partition key are co-located and ordered relative to each other — so events for a single user, account, or order stay in order. But across keys, you can't say which came first. Choose the partition key carefully so the ordering you actually need is preserved.",
     sort_order: 2,
+  },
+  {
+    checkpoint_slug: "checkpoint-streaming-and-event-driven-data",
+    prompt: "Which streaming operation is stateless, and which is stateful?",
+    options: [
+      { id: "a", text: "Stateless: aggregation by user. Stateful: filtering events.", correct: false },
+      {
+        id: "b",
+        text: "Stateless: map, filter, enrich, route (each event is independent). Stateful: aggregations, joins, dedup, sessions (require memory across events).",
+        correct: true,
+      },
+      { id: "c", text: "All streaming operations are stateful.", correct: false },
+      { id: "d", text: "All streaming operations are stateless if you use exactly-once semantics.", correct: false },
+    ],
+    explanation:
+      "The stateless/stateful split predicts where the hard problems live. Stateless operations are embarrassingly parallel: no memory between events, easy to scale and recover. Stateful operations need durable per-key memory, which forces all of streaming's hardest engineering problems — windowing, checkpointing, exactly-once semantics. If your transform is stateless, life is easy. If it's stateful, you're paying the full streaming-complexity tax.",
+    sort_order: 3,
+  },
+  {
+    checkpoint_slug: "checkpoint-streaming-and-event-driven-data",
+    prompt: "You're computing a 5-minute rolling average that updates every minute. Which window shape is that?",
+    options: [
+      { id: "a", text: "Tumbling — fixed, non-overlapping buckets.", correct: false },
+      {
+        id: "b",
+        text: "Sliding — fixed-size (5 minutes) but overlapping, advancing by a smaller step (1 minute). Each event falls into multiple windows.",
+        correct: true,
+      },
+      { id: "c", text: "Session — gap-defined.", correct: false },
+      { id: "d", text: "Punctuated — closed by explicit events.", correct: false },
+    ],
+    explanation:
+      "Tumbling windows are fixed-size and non-overlapping (\"every 5 minutes: 0–5, 5–10\") — each event in exactly one. Sliding windows are fixed-size but overlapping — \"a 5-minute window recomputed every minute,\" which is precisely the rolling-average / sliding-window-rate-limiter shape. Session windows are dynamic and gap-defined (e.g., \"user activity until 30 minutes idle\"). Each fits a different question shape.",
+    sort_order: 4,
+  },
+  {
+    checkpoint_slug: "checkpoint-streaming-and-event-driven-data",
+    prompt: "What does a *watermark* of \"T = 14:35\" mean to a stream processor?",
+    options: [
+      { id: "a", text: "Stop processing events; the stream is closed.", correct: false },
+      {
+        id: "b",
+        text: "The system's heuristic assertion: \"I believe I've now seen everything up to event-time 14:35.\" Any window ending at or before 14:35 can be considered complete enough to emit and close.",
+        correct: true,
+      },
+      { id: "c", text: "Every event after 14:35 must be processed immediately.", correct: false },
+      { id: "d", text: "The current processing-time wall clock.", correct: false },
+    ],
+    explanation:
+      "Watermarks are how stream systems answer \"when is a window done?\" — the question batch answers for free, because a batch is just done when its partition finishes loading. The watermark is a latency-vs-completeness dial: wait longer to absorb more late stragglers (more complete, higher latency); wait less to emit fast (lower latency, risk of missing late data). Events arriving *after* the watermark has passed their window are \"late data\" — either dropped or handled with re-emission.",
+    sort_order: 5,
+  },
+  {
+    checkpoint_slug: "checkpoint-streaming-and-event-driven-data",
+    prompt: "Why is true \"exactly-once delivery\" considered impossible over an unreliable network?",
+    options: [
+      { id: "a", text: "Kafka doesn't support it.", correct: false },
+      {
+        id: "b",
+        text: "It's the two-generals problem: there's no protocol that can guarantee both parties agree a message was delivered exactly once when acks themselves can be lost. What real systems provide is exactly-once *processing* — at-least-once delivery + idempotent writes OR transactional commits.",
+        correct: true,
+      },
+      { id: "c", text: "Network latency is unpredictable.", correct: false },
+      { id: "d", text: "Disk writes can fail silently.", correct: false },
+    ],
+    explanation:
+      "The classic distributed-systems result: exactly-once delivery isn't achievable when acknowledgements themselves can be lost. What real systems do is at-least-once delivery + something idempotent on the receiver, which yields exactly-once *effect* (also called \"effectively-once\"). The two paths: idempotent writes (deduplicate at the output by key), or transactional commits that bind output + offset atomically (Kafka transactions, Flink checkpoint + 2PC).",
+    sort_order: 6,
+  },
+  {
+    checkpoint_slug: "checkpoint-streaming-and-event-driven-data",
+    prompt: "A Flink job reads an event, writes the output, then crashes *before* committing the consumed offset. On restart, what happens?",
+    options: [
+      { id: "a", text: "The event is silently lost.", correct: false },
+      {
+        id: "b",
+        text: "The event is re-read and the output is written again (duplicate). At-least-once delivery, on its own, allows this. Exactly-once semantics is what binds the output write and offset commit into a single atomic step so the duplicate can't happen.",
+        correct: true,
+      },
+      { id: "c", text: "Flink detects the duplicate automatically.", correct: false },
+      { id: "d", text: "The whole topic resets to zero.", correct: false },
+    ],
+    explanation:
+      "This is the canonical read-process-write atomicity problem. Without atomicity between output and offset, a crash between the two creates a duplicate on restart. At-least-once shrugs at this. Exactly-once requires either (a) the sink is idempotent so the duplicate is harmless, or (b) a transactional commit that binds the output write and the offset commit into one atomic operation (Kafka transactions, Flink checkpoint + two-phase commit into the sink).",
+    sort_order: 7,
+  },
+  {
+    checkpoint_slug: "checkpoint-streaming-and-event-driven-data",
+    prompt: "Why must session windows eventually close, even if events for a key keep arriving?",
+    options: [
+      { id: "a", text: "To free up CPU.", correct: false },
+      {
+        id: "b",
+        text: "To bound state growth. Per-key state over an infinite stream of keys grows without limit; without TTLs, expiry, or windowing, in-memory state will eventually exceed RocksDB capacity and the job dies.",
+        correct: true,
+      },
+      { id: "c", text: "Session windows don't need to close; they're optional.", correct: false },
+      { id: "d", text: "To match SQL semantics.", correct: false },
+    ],
+    explanation:
+      "Unbounded state growth is one of the three properties that make streaming state hard (alongside durability and scale). Per-key state accumulates indefinitely; without explicit TTLs or windowing-driven closure, RocksDB will fill, checkpoints will balloon, and the job will eventually die. Session windows close on an inactivity gap precisely so the per-session state can be expired and freed.",
+    sort_order: 8,
+  },
+  {
+    checkpoint_slug: "checkpoint-streaming-and-event-driven-data",
+    prompt: "What does Flink's checkpointing mechanism actually snapshot, and why does that matter?",
+    options: [
+      { id: "a", text: "Just the operator state — offsets are tracked separately.", correct: false },
+      {
+        id: "b",
+        text: "A consistent snapshot of *all* operator state together with the corresponding stream offsets, atomically. The same snapshot delivers both fault-tolerant state recovery AND effectively-once processing semantics — two faces of one mechanism.",
+        correct: true,
+      },
+      { id: "c", text: "Only the input stream — state is recomputed on restart.", correct: false },
+      { id: "d", text: "Only the output sink — input position is reset to zero.", correct: false },
+    ],
+    explanation:
+      "The elegant unification at the heart of Flink (and similar systems): a checkpoint is one consistent (state + offset) snapshot, not two separate things. On failure, Flink restores state from the checkpoint and resumes consuming from the matched offset — so the work isn't duplicated. That's the *same* mechanism that delivers exactly-once: by binding state and offset into a single atomic snapshot (and atomically committing both with the sink via 2PC), the system rules out read-process-write duplicates.",
+    sort_order: 9,
+  },
+  {
+    checkpoint_slug: "checkpoint-streaming-and-event-driven-data",
+    prompt: "A team's analyst-facing dashboard refreshes every 5 minutes. They're debating whether to build it on streaming infrastructure. What's the right call?",
+    options: [
+      { id: "a", text: "Build streaming — fresher is better.", correct: false },
+      {
+        id: "b",
+        text: "Don't. Streaming is expensive (continuous compute, harder to operate, more failure modes) and only pays back when something *acts* on the data within seconds. A 5-minute dashboard is a textbook micro-batch case — let the consumer's cadence drive the latency.",
+        correct: true,
+      },
+      { id: "c", text: "Build both batch and streaming so the team can pick.", correct: false },
+      { id: "d", text: "Use exactly-once streaming to be safe.", correct: false },
+    ],
+    explanation:
+      "Take on streaming's complexity only when a decision genuinely *acts* on data within seconds — fraud blocking, alerting, live personalization. A 5-minute dashboard refreshes every 5 minutes; a 5-minute micro-batch fills that requirement with a tiny fraction of streaming's operational cost. This is the same \"latency from the decision, not the data\" discipline from Phase 1's batch-vs-real-time concept, applied here.",
+    sort_order: 10,
   },
 
   // ── Phase 6 ──────────────────────────────────────────
   {
     checkpoint_slug: "checkpoint-storage-scale-and-compute",
-    prompt: "A query reads two columns from a 1-billion-row table stored in row format. Roughly how much data must the engine scan?",
+    prompt: "Beyond \"reading fewer columns,\" what's the *second* big mechanism that makes columnar formats fast at analytical scale?",
     options: [
-      { id: "a", text: "Only the bytes of the two requested columns.", correct: false },
-      { id: "b", text: "The whole table — every column of every row.", correct: true },
-      { id: "c", text: "Only the column metadata.", correct: false },
-      { id: "d", text: "A random sample of rows.", correct: false },
+      { id: "a", text: "Random-access B-tree lookups within each column.", correct: false },
+      {
+        id: "b",
+        text: "Compression: columns are homogeneous data, so they compress dramatically (dictionary, RLE, delta). I/O is the bottleneck and CPU is cheap, so paying decompression cycles to read far fewer bytes is almost always a win.",
+        correct: true,
+      },
+      { id: "c", text: "Faster CPU instructions.", correct: false },
+      { id: "d", text: "Predictive prefetching from disk.", correct: false },
     ],
     explanation:
-      "Row format stores all columns of a row contiguously, so reading two columns from every row still requires reading past every other column on disk. Columnar formats store each column as its own file, so a 2-column read only touches those two columns' data.",
+      "Compression is a speed feature, not just a storage saving. Same logic as gzipping a network payload: I/O dominates, CPU is cheap, decompress-to-read-less is almost always faster than read-uncompressed. The third mechanism — embedded min/max stats per row group enabling data skipping — is the topic of the next question.",
     sort_order: 1,
   },
   {
     checkpoint_slug: "checkpoint-storage-scale-and-compute",
-    prompt: "A table is partitioned by event_date. Queries filter `where event_date between '2025-01-01' and '2025-01-07'`. What does the engine do?",
+    prompt: "Parquet stores per-row-group statistics (min, max, null count). What does this enable?",
     options: [
-      { id: "a", text: "Read the whole table and apply the filter afterward.", correct: false },
-      { id: "b", text: "Read only the 7 partitions corresponding to those dates.", correct: true },
-      { id: "c", text: "Read all partitions but ignore the filter.", correct: false },
-      { id: "d", text: "Materialize a new table for the date range.", correct: false },
+      { id: "a", text: "Automatic SQL optimization.", correct: false },
+      {
+        id: "b",
+        text: "*Data skipping* — a query like `WHERE date = X` can check a row group's min/max, see X isn't in range, and skip the chunk entirely without reading its data. Skipping happens at multiple granularities: whole partitions, row groups within a file, and which columns to touch at all.",
+        correct: true,
+      },
+      { id: "c", text: "Schema evolution.", correct: false },
+      { id: "d", text: "Time-travel queries.", correct: false },
     ],
     explanation:
-      "Partitioning lets the query planner prune partitions that can't match the filter. A 7-day scan against 2 years of data touches ~1% of the storage. The partition key has to align with how queries actually filter, or partitioning achieves nothing.",
+      "The unifying insight of physical storage: columnar projection, partition pruning, and row-group skipping are the *same technique at three granularities* — arrange data so the engine can avoid reading what the query doesn't need. Coarse to fine: prune whole partitions, then skip row groups by their stats, then read only the referenced columns.",
     sort_order: 2,
+  },
+  {
+    checkpoint_slug: "checkpoint-storage-scale-and-compute",
+    prompt: "Why is OLTP **sharding** different from OLAP **partitioning**, even though both \"split data into pieces by a key\"?",
+    options: [
+      { id: "a", text: "They're the same — different vendors use different names.", correct: false },
+      {
+        id: "b",
+        text: "Sharding splits data across nodes to distribute write throughput (you choose the key to balance load). Partitioning splits data into files/directories so a query can *skip* what it doesn't need (you choose the key to enable pruning). Opposite goals, same operation.",
+        correct: true,
+      },
+      { id: "c", text: "Partitioning is for SQL; sharding is for NoSQL.", correct: false },
+      { id: "d", text: "Sharding is automatic; partitioning is manual.", correct: false },
+    ],
+    explanation:
+      "OLTP sharding optimizes for write throughput — the key is chosen to spread load evenly. OLAP partitioning optimizes for *reading less* — the key is chosen to align with the filters queries actually use. Opposite intent. \"Like sharding turned inside out\" is exactly the right mental shift.",
+    sort_order: 3,
+  },
+  {
+    checkpoint_slug: "checkpoint-storage-scale-and-compute",
+    prompt: "A team partitions their event table by `user_id` (millions of users). What goes wrong?",
+    options: [
+      { id: "a", text: "Queries filtering by `user_id` get faster.", correct: false },
+      {
+        id: "b",
+        text: "The *small-files problem*: millions of tiny partitions means per-file read overhead and catalog metadata explode and dominate the actual work. Storage cost balloons, and queries that *don't* filter by `user_id` are crippled by metadata listing.",
+        correct: true,
+      },
+      { id: "c", text: "Nothing — high-cardinality partitions are ideal.", correct: false },
+      { id: "d", text: "The data becomes encrypted.", correct: false },
+    ],
+    explanation:
+      "Sharp failure mode on the high-cardinality side: millions of tiny files = catalog bloat and per-file overhead that dwarfs the actual data work. Sharp failure mode on the low-cardinality side: too few, too-large partitions mean pruning achieves little. Time (date) is the usual sweet spot: a few hundred per year, aligned with what most queries filter on.",
+    sort_order: 4,
+  },
+  {
+    checkpoint_slug: "checkpoint-storage-scale-and-compute",
+    prompt: "In a distributed analytics engine (Spark, Trino, Snowflake, BigQuery), what is the dominant cost of a `GROUP BY` or `JOIN`?",
+    options: [
+      { id: "a", text: "CPU cycles for the aggregation.", correct: false },
+      {
+        id: "b",
+        text: "The *shuffle* — redistributing rows across the network so all rows with the same key land on the same node. CPU is cheap; moving terabytes between stages is slow and expensive. Minimizing shuffle is the whole game of distributed-query performance.",
+        correct: true,
+      },
+      { id: "c", text: "Disk I/O on the worker nodes.", correct: false },
+      { id: "d", text: "Locking contention between workers.", correct: false },
+    ],
+    explanation:
+      "Map/filter/project stages are embarrassingly parallel and scale linearly. The shuffle is an all-to-all network exchange and dominates cost. This is also *why denormalization pays off*: denormalizing pre-joins the data, so the query doesn't have to — and avoiding a join means avoiding a shuffle.",
+    sort_order: 5,
+  },
+  {
+    checkpoint_slug: "checkpoint-storage-scale-and-compute",
+    prompt: "You're joining a 10 TB fact table to a 100 MB dimension table. Which join strategy does the engine want to use, and why?",
+    options: [
+      { id: "a", text: "Shuffle/sort-merge join — redistribute both tables by key.", correct: false },
+      {
+        id: "b",
+        text: "Broadcast join — copy the 100 MB dimension table to every node so the 10 TB fact table never moves. The big table stays put, the small table is broadcast once, and the expensive all-to-all shuffle is avoided entirely.",
+        correct: true,
+      },
+      { id: "c", text: "Cross join — no shuffle needed.", correct: false },
+      { id: "d", text: "Hash join with a temporary table.", correct: false },
+    ],
+    explanation:
+      "Broadcast join is the right call when one side fits in memory on each worker. The small table is replicated; the big table stays partitioned where it is; no shuffle. Sort-merge/shuffle joins are unavoidable when both sides are large — then both have to be redistributed by key. Watching which strategy the planner picks (and nudging it via hints or by adjusting `broadcast_threshold`) is core performance work.",
+    sort_order: 6,
+  },
+  {
+    checkpoint_slug: "checkpoint-storage-scale-and-compute",
+    prompt: "A Spark job runs forever on one task while the other 999 finish quickly. The slow task is processing a partition with 95% of the rows. What's happening?",
+    options: [
+      { id: "a", text: "A bad SQL plan.", correct: false },
+      {
+        id: "b",
+        text: "Data skew. One key (a null, a whale customer, a bot) holds most of the rows, so when the engine shuffles by that key, one worker gets buried while the others sit idle. The job waits on that *straggler*. Mitigations: salt the hot key, isolate it into its own path, or pre-aggregate before the shuffle.",
+        correct: true,
+      },
+      { id: "c", text: "Disk failure on one worker.", correct: false },
+      { id: "d", text: "Network packet loss.", correct: false },
+    ],
+    explanation:
+      "Data skew is the load-imbalance pathology of distributed analytics: partitioning by the data should partition the work evenly, but a single hot key breaks that assumption. It's the same hot-shard problem in OLTP systems: one tenant or one user attracts most of the traffic and the rest of the cluster sits idle. Salting (appending a small random suffix to the key) spreads the load across multiple buckets.",
+    sort_order: 7,
+  },
+  {
+    checkpoint_slug: "checkpoint-storage-scale-and-compute",
+    prompt: "What's the crispest characterization of \"data lake vs. data warehouse\"?",
+    options: [
+      { id: "a", text: "Lakes are cheaper, warehouses are more reliable.", correct: false },
+      {
+        id: "b",
+        text: "Schema-on-read vs. schema-on-write — defer schema enforcement to query time (flexible, but every reader pays the interpretation cost) vs. enforce at load time (rigid, but every reader gets correctness for free). The same trade-off as dynamic vs. static typing.",
+        correct: true,
+      },
+      { id: "c", text: "Lakes use Parquet, warehouses use proprietary formats.", correct: false },
+      { id: "d", text: "Lakes are bigger.", correct: false },
+    ],
+    explanation:
+      "Schema-on-read vs. schema-on-write is the precise axis. Lakes accept raw files of any shape and let consumers interpret them (flexible, ML-friendly, swamp-prone). Warehouses enforce shape at load time (governed, fast, rigid). The lakehouse via Iceberg/Delta/Hudi resolves the tension by adding a metadata layer (transaction log + file manifest) over Parquet — warehouse-grade ACID, schema evolution, time travel, all on open files.",
+    sort_order: 8,
+  },
+  {
+    checkpoint_slug: "checkpoint-storage-scale-and-compute",
+    prompt: "What is Apache Iceberg / Delta Lake / Hudi mechanically, and what does that mechanism buy you?",
+    options: [
+      { id: "a", text: "A new file format that replaces Parquet.", correct: false },
+      {
+        id: "b",
+        text: "A metadata layer — a transaction log plus a manifest of which Parquet files constitute the table at each version — laid over a directory of files. That metadata buys you ACID transactions, schema evolution, efficient MERGE/upserts, file-level skipping, and time travel. It's git's commit log over a directory of files.",
+        correct: true,
+      },
+      { id: "c", text: "A query engine like Trino or Spark.", correct: false },
+      { id: "d", text: "A managed warehouse service.", correct: false },
+    ],
+    explanation:
+      "Open table formats aren't new file formats — they're a layer of metadata (transaction log + file manifest) over standard Parquet/ORC files in object storage. That layer is what gives an open lake the warehouse-grade features it always lacked: transactions, schema enforcement, upserts, skipping stats, and time-travel queries. Mechanically it's a WAL and a content-addressed object model — the same primitives that make git a distributed-versioned filesystem.",
+    sort_order: 9,
+  },
+  {
+    checkpoint_slug: "checkpoint-storage-scale-and-compute",
+    prompt: "A data engineer says \"in the cloud, performance and cost are the same axis.\" What do they mean?",
+    options: [
+      { id: "a", text: "Faster queries cost more because they need bigger clusters.", correct: false },
+      {
+        id: "b",
+        text: "Cloud billing is per-byte-scanned (BigQuery, Athena) or per-compute-second (Snowflake, Spark). Both functions of how many bytes a query physically touches. So a faster query is a cheaper query, automatically — and every technique in the series (columnar, partitioning, denormalization, incremental loads) is also a cost lever.",
+        correct: true,
+      },
+      { id: "c", text: "Hardware is cheaper in the cloud.", correct: false },
+      { id: "d", text: "Cloud providers offer performance discounts.", correct: false },
+    ],
+    explanation:
+      "On-prem, hardware was a sunk cost and a slow query was merely slow-but-free. In the cloud, every inefficient query is a line item on the invoice — the infamous accidental full-table scan with no partition filter is a literal surprise on the bill. The mental shift: when you see a query, ask not just \"will this work?\" but \"how much data will this read, how much will it shuffle, how much will it cost, and how long will it run?\" That's Big-O thinking where the profiler's output is denominated in dollars.",
+    sort_order: 10,
   },
 
   // ── Phase 7 ──────────────────────────────────────────

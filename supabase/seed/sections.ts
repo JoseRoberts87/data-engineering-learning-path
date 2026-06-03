@@ -3143,4 +3143,1158 @@ export const sections: SectionSeed[] = [
         "Job-level SLAs miss whole classes of failure: the job succeeded but produced no new data; the job failed but a recent earlier run is still fresh enough; a sensor blocked the job for a legitimate reason. Asset-level freshness checks the *outcome* — is the data current? — decoupled from how it got that way. This is the same shift as SRE moving from monitoring deploys to monitoring user-facing SLOs.",
     },
   },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // event-streams
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "event-streams",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "Queue vs log — same wire, different semantics",
+      left_label: "Traditional queue (SQS, RabbitMQ)",
+      right_label: "Append-only log (Kafka, Kinesis, Pulsar)",
+      pairs: [
+        { left: "Message deleted when consumed", right: "Message retained for a retention period regardless of who has read it" },
+        { left: "Each message is consumed once by one consumer (or one consumer group)", right: "Many consumer groups read the same log at their own pace via independent offsets" },
+        { left: "No replay — once gone, gone", right: "Replayable: any consumer can rewind to a past offset and reprocess" },
+        { left: "Producer blocks if consumer is slow (or queue fills)", right: "Producer publishes at its own rate; slow consumer just falls behind in offset" },
+        { left: "Good for: work queues, fire-and-forget jobs", right: "Good for: durable event histories, fan-out to multiple downstream systems, replay for bug recovery" },
+      ],
+    },
+  },
+  {
+    concept_slug: "event-streams",
+    sort_order: 2,
+    type: "dimensions",
+    payload: {
+      title: "What the log buys you that a queue can't",
+      intro: "Each of these falls out of the single design choice: retain messages, let consumers track offsets independently.",
+      items: [
+        {
+          name: "Replayability",
+          description: "A new consumer can read from offset 0; an existing one can rewind to reprocess after a bug fix. The same payoff as Phase 3's \"keep raw, transform repeatedly\" — the log *is* the replayable source of truth.",
+          swe_parallel: "Git history — you can `checkout` any past commit",
+        },
+        {
+          name: "Independent fan-out",
+          description: "10 consumer groups can read the same topic at 10 different speeds. Adding a new consumer doesn't disturb the others. Compare with a queue, where adding a consumer means competing for messages.",
+          swe_parallel: "Pub/sub vs point-to-point messaging — but durable",
+        },
+        {
+          name: "Backpressure absorption",
+          description: "A slow consumer just falls behind in offset. The producer keeps writing at its native rate. The log absorbs the lag.",
+          swe_parallel: "A bounded channel that drops vs a durable buffer",
+        },
+        {
+          name: "Partition ordering",
+          description: "Messages sharing a key (`user_id`) land on the same partition and stay ordered relative to each other. Global ordering is sacrificed for parallelism — the standard sharding trade-off.",
+          swe_parallel: "Sharded databases: per-shard ordering, no cross-shard ordering",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "event-streams",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "Queue-thinking applied to a log",
+      intro: "These are the classic mistakes when someone treats Kafka like RabbitMQ.",
+      items: [
+        {
+          scenario: "Consumer commits its offset *before* processing the message, then crashes mid-processing.",
+          consequence: "On restart, the offset is past the failed message — it's effectively lost. Looks like at-most-once delivery.",
+          de_catches_it: "Commit the offset *after* processing succeeds. The default in most clients is at-least-once for this reason — process first, then commit.",
+        },
+        {
+          scenario: "Team treats consumer offset like a queue pointer: rewinds it to \"reprocess\" while another consumer in the same group is still reading.",
+          consequence: "Both consumers read the same messages — duplicate processing without any idempotency safety net.",
+          de_catches_it: "Reset offsets through proper tooling (`kafka-consumer-groups --reset-offsets`) while the consumer group is stopped, not while it's live. Or use a new consumer group for the replay.",
+        },
+        {
+          scenario: "Producer publishes events to a topic with a single partition because \"ordering is important.\"",
+          consequence: "Single partition means single-threaded processing on the consumer side. Throughput caps at one consumer's capacity — usually orders of magnitude below what Kafka can deliver.",
+          de_catches_it: "Partition by a key that preserves the ordering you actually need (user_id, order_id). Per-key ordering is enough for most workloads; global ordering rarely is.",
+        },
+        {
+          scenario: "Topic retention is set to 1 day to \"save storage,\" but the team relies on replayability for backfills.",
+          consequence: "By the time a bug is found, the relevant events have been deleted. Backfill is impossible.",
+          de_catches_it: "Set retention based on your bug-tolerance window (often weeks to months for important streams). Or use Kafka's log compaction for keyed streams where you only need the latest value per key.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "event-streams",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "Three downstream systems consume the same stream of order events: a real-time fraud detector, a 5-minute analytics aggregator, and a nightly warehouse loader. Each runs at its own latency requirement. Which event-transport model is right?",
+      options: [
+        { id: "a", text: "RabbitMQ — three queues, one per consumer.", correct: false },
+        {
+          id: "b",
+          text: "Kafka (or Kinesis / Pulsar) — one topic, three consumer groups reading at their own pace via independent offsets. The log retains events for everyone.",
+          correct: true,
+        },
+        { id: "c", text: "SQS — three queues fanning out from one publisher.", correct: false },
+        { id: "d", text: "Three separate databases.", correct: false },
+      ],
+      explanation:
+        "Independent fan-out is the log's killer feature. With RabbitMQ/SQS, you'd either need three queues (which the publisher has to fan out to itself) or a single queue with three consumers competing. With a log, each consumer group reads at its own pace via independent offsets — the fraud detector reads in near-real-time, the analytics aggregator catches up every 5 minutes, the warehouse loader runs nightly, all from the same physical log.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // stream-processing
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "stream-processing",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "Batch job vs streaming topology",
+      left_label: "Batch job",
+      right_label: "Streaming topology",
+      pairs: [
+        { left: "Bounded input → run → terminates", right: "Unbounded input → runs forever (a daemon)" },
+        { left: "\"State\" is the dataset in memory while the job runs; gone when job ends", right: "State persists across events and must survive failures over months" },
+        { left: "You invoke it; it runs once", right: "It runs continuously; you deploy operators into a topology" },
+        { left: "Wall-clock latency: minutes to hours", right: "Per-event latency: microseconds (Flink) to seconds (micro-batch)" },
+        { left: "Reruns: same input → same output, trivially", right: "Reruns: replay from offset, recover state from checkpoint" },
+        { left: "Most operations are easy — all data is there", right: "Stateful operations (joins, aggregations, sessions) require careful engineering" },
+      ],
+    },
+  },
+  {
+    concept_slug: "stream-processing",
+    sort_order: 2,
+    type: "dimensions",
+    payload: {
+      title: "Stateless vs stateful — where the difficulty lives",
+      intro: "The split predicts everything: stateless is easy and embarrassingly parallel; stateful unlocks every hard problem in streaming.",
+      items: [
+        {
+          name: "Stateless operations",
+          description: "`map`, `filter`, `enrich-from-static-lookup`, `route`. Each event is independent — no memory between events. Easy to scale (just add workers), easy to recover (no state to restore).",
+        },
+        {
+          name: "Stateful operations — aggregations",
+          description: "Running counts, sums, averages keyed by some attribute. Requires per-key memory that survives indefinitely (or until expired).",
+        },
+        {
+          name: "Stateful operations — joins",
+          description: "Matching an event in one stream to an event in another (e.g., click → impression seen earlier). Requires buffering events from one stream until the matching event arrives.",
+        },
+        {
+          name: "Stateful operations — sessions",
+          description: "Grouping events for the same key as long as activity continues. Requires keeping the open session in state and expiring on inactivity gap.",
+        },
+        {
+          name: "Stateful operations — dedup",
+          description: "\"Have I seen this event id before?\" Requires remembering every seen id (with TTL) — classic unbounded-state problem.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "stream-processing",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "Standing-topology failure modes that don't exist in batch",
+      items: [
+        {
+          scenario: "Topology runs continuously for 3 months. RocksDB state grows to 2 TB. Worker disks fill up.",
+          consequence: "Job crashes. Checkpoint can't complete. Recovery requires manual state surgery or wiping and restarting from scratch.",
+          de_catches_it: "Always bound stateful operators with TTLs, expiration, or windowing. Monitor state size; alert before disks fill.",
+        },
+        {
+          scenario: "Operator that uses `now()` for time-windowed aggregation. A late event arrives 2 hours after its event time.",
+          consequence: "The event lands in the *current* window instead of the historical window it belongs to. Hourly counts are wrong silently.",
+          de_catches_it: "Always window by event time, not processing time. Phase 5's time-and-ordering concept covers the watermark machinery this requires.",
+        },
+        {
+          scenario: "Single Flink job has 50 operators, hundreds of subtasks, and runs for weeks. One operator's RocksDB checkpoint takes 90 seconds.",
+          consequence: "Checkpoint interval has to be at least 90s. If anything fails between checkpoints, you replay up to 90s of events on recovery — duplicate processing if downstream isn't idempotent.",
+          de_catches_it: "Incremental checkpoints (Flink supports them with RocksDB). Smaller per-key state. Idempotent sinks so replays are harmless.",
+        },
+        {
+          scenario: "Team upgrades the Flink job's code. New version has different state shape (added a field to the per-key state object).",
+          consequence: "Restoring the old checkpoint into the new code fails or silently misreads state. Job won't start or produces corrupt output.",
+          de_catches_it: "State schema evolution: design state objects with forward-compatibility (Avro, Protobuf) from day one. Test upgrades against a real checkpoint before deploying.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "stream-processing",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "You need to count purchases per user per hour, updated continuously, across a 1M-event-per-second stream. Which architectural style fits best?",
+      options: [
+        { id: "a", text: "Record-at-a-time (Flink) with stateful keyed aggregation, event-time windowing, and incremental checkpointing.", correct: true },
+        {
+          id: "b",
+          text: "Micro-batch (Spark Structured Streaming) — buffer 1-second batches and run mini batch jobs.",
+          correct: false,
+        },
+        { id: "c", text: "Hourly batch jobs — just run a SQL query against the warehouse every hour.", correct: false },
+        { id: "d", text: "Stateless filter into Kafka and let the consumer count.", correct: false },
+      ],
+      explanation:
+        "All four answers would technically count purchases, but the question's requirements force the choice: \"per user per hour, updated continuously, 1M events/sec\" demands (a) low per-event latency, (b) stateful keyed aggregation (per user), (c) windowing (per hour), (d) high throughput. That's the canonical Flink workload. Micro-batch would work too, with slightly higher latency. Hourly batch loses the \"updated continuously\" requirement. Stateless filtering forfeits the aggregation.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // windowing
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "windowing",
+    sort_order: 1,
+    type: "dimensions",
+    payload: {
+      title: "The three window shapes",
+      intro: "Each shape maps to a question type you already know from SWE-land.",
+      items: [
+        {
+          name: "Tumbling (fixed, non-overlapping)",
+          description: "Every 5 minutes: 0–5, 5–10, 10–15. Each event in exactly one window. Use for hourly counts, daily totals, anything where buckets are discrete.",
+          swe_parallel: "Fixed-bucket rate limiter (\"100 requests per minute, reset on the minute\")",
+        },
+        {
+          name: "Sliding (fixed-size, overlapping)",
+          description: "A 5-minute window recomputed every minute. Each event falls into multiple windows. Use for rolling averages and smoothed dashboards.",
+          swe_parallel: "Rolling average, sliding-window rate limiter",
+        },
+        {
+          name: "Session (dynamic, gap-defined)",
+          description: "The window stays open while events arrive and closes after an inactivity gap (e.g., 30 minutes idle). Size is data-driven. Use for user sessions, shopping carts, conversation threads.",
+          swe_parallel: "User session with idle timeout",
+        },
+        {
+          name: "Global (unbounded)",
+          description: "All events in one logical window forever. Only useful with custom triggers or for `forEach`-style stateful operators. Not for aggregation alone.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "windowing",
+    sort_order: 2,
+    type: "comparison",
+    payload: {
+      title: "Batch GROUP BY vs streaming window",
+      left_label: "Batch SQL `GROUP BY`",
+      right_label: "Streaming window",
+      pairs: [
+        { left: "`GROUP BY HOUR(event_time)` over a bounded dataset", right: "`TUMBLE(event_time, INTERVAL '1 HOUR')` over an unbounded stream" },
+        { left: "Each group is \"done\" when the query reads the last row", right: "Each window has to be explicitly closed (\"when do we stop waiting for late data?\")" },
+        { left: "Results emitted once, when the query finishes", right: "Results emitted as the window closes (and possibly again as late data arrives)" },
+        { left: "No notion of late data — the data is already all there", right: "Late data is a first-class concept; watermarks determine when a window is \"done enough\" to emit" },
+        { left: "Group definition is purely structural", right: "Group definition includes a closure rule (window type + watermark policy)" },
+      ],
+    },
+  },
+  {
+    concept_slug: "windowing",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "Windowing mistakes",
+      items: [
+        {
+          scenario: "Team windows by processing time (\"when the event arrived\") instead of event time.",
+          consequence: "An event timestamped 1:59 PM but arriving at 2:05 PM lands in the 2–3 PM bucket. Hourly counts shift around based on network delays. Year-over-year comparisons become meaningless because the windowing semantics depended on infrastructure speed.",
+          de_catches_it: "Window by event time. Pay for the watermark complexity — that's what it's for.",
+        },
+        {
+          scenario: "Sliding window with very short step (\"slide every second\" on a 5-minute window) over high-volume data.",
+          consequence: "Each event is in 300 windows simultaneously. Computational cost balloons; state size explodes; checkpoint times become unsustainable.",
+          de_catches_it: "Choose the slide step thoughtfully. \"Sliding every minute on a 5-minute window\" means 5x cost vs tumbling. Sliding every second means 300x.",
+        },
+        {
+          scenario: "Session window with no inactivity gap (or a huge gap like \"24 hours of inactivity to close\").",
+          consequence: "Sessions stay open indefinitely for users who return sporadically. State per session grows; the session never emits a final result.",
+          de_catches_it: "Choose a gap that matches your real session definition (often 30 minutes for web). Test what happens with users active over multi-day spans.",
+        },
+        {
+          scenario: "Late events arriving after the watermark has closed the window are silently dropped — and no one is monitoring.",
+          consequence: "Customers in a different timezone, or users on intermittent mobile connections, are systematically under-counted. The dashboard looks fine.",
+          de_catches_it: "Set an explicit \"allowed lateness\" so windows re-emit on late arrival. Monitor the late-data side stream. Phase 5 time-and-ordering covers this in detail.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "windowing",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "You need to track \"users active in the last 30 minutes\" for a live ops dashboard. Which window shape is most natural?",
+      options: [
+        { id: "a", text: "Tumbling — fixed 30-minute buckets aligned to the hour.", correct: false },
+        {
+          id: "b",
+          text: "Sliding — 30-minute window recomputed every minute. Each minute the window covers \"the last 30 minutes\" as a rolling view.",
+          correct: true,
+        },
+        { id: "c", text: "Session — gap-defined per user.", correct: false },
+        { id: "d", text: "Global — unbounded.", correct: false },
+      ],
+      explanation:
+        "\"Users active in the *last* 30 minutes\" is a rolling view: at 14:00 it's 13:30–14:00; at 14:01 it's 13:31–14:01. That's a sliding window. Tumbling would give discrete buckets aligned to the hour, which is the wrong shape. Session windows are about per-user sessions, not aggregate rolling counts. Sliding is the rolling-average / live-dashboard pattern.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // time-and-ordering
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "time-and-ordering",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "Event time vs processing time",
+      left_label: "Event time",
+      right_label: "Processing time",
+      pairs: [
+        { left: "Timestamp inside the event — when it actually happened", right: "Wall clock when the stream processor received it" },
+        { left: "Stable across reruns and replays", right: "Different every run; depends on infrastructure speed" },
+        { left: "What you almost always want for correctness", right: "Trivial to implement, almost always wrong at the boundary" },
+        { left: "Hard because events arrive out of order and late", right: "Easy: just use `now()` when the event lands" },
+        { left: "Requires watermarks to decide when a window is \"done\"", right: "No completion problem — windows close on wall-clock boundaries" },
+        { left: "\"This sale happened at 1:59 PM\"", right: "\"This sale arrived at the processor at 2:07 PM\"" },
+      ],
+    },
+  },
+  {
+    concept_slug: "time-and-ordering",
+    sort_order: 2,
+    type: "dimensions",
+    payload: {
+      title: "The watermark dial — and the late-data policy that complements it",
+      intro: "Watermarks are how a streaming system answers \"when is this window done?\" Every watermark configuration trades freshness against completeness.",
+      items: [
+        {
+          name: "Aggressive watermark (low lag tolerance)",
+          description: "Declare \"I've seen everything up to T\" quickly — within seconds. Windows close fast; you emit early. Risk: more late events arrive after closure, get dropped or trigger expensive re-emissions.",
+        },
+        {
+          name: "Conservative watermark (high lag tolerance)",
+          description: "Wait minutes or hours before declaring a window complete. Better correctness; higher latency before emit. Used when freshness matters less than accuracy.",
+        },
+        {
+          name: "Allowed lateness",
+          description: "Even after the watermark closes a window, hold the state for N more minutes/hours. If a late event arrives within that window, re-emit an updated result.",
+        },
+        {
+          name: "Late-data side stream",
+          description: "Events that arrive after even the lateness window has expired are routed to a side output for inspection or post-hoc correction. Monitor its depth.",
+        },
+        {
+          name: "Drop late",
+          description: "Simplest policy: events past the watermark are silently dropped. Acceptable only if you've accepted some loss in exchange for low latency and bounded state.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "time-and-ordering",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "Late-data and clock-skew scenarios",
+      items: [
+        {
+          scenario: "Mobile devices buffer events offline and upload in a burst when they reconnect — sometimes hours later.",
+          consequence: "Hourly counts for those past hours change retroactively when the late batch arrives. If the system has already declared those windows closed and dropped late data, the counts are silently under-reported.",
+          de_catches_it: "Set allowed lateness generous enough to cover normal mobile-offline behavior. Watch the late-data side stream for the long tail.",
+        },
+        {
+          scenario: "An IoT sensor's clock is wrong by 6 hours. Events arrive with `event_time` from yesterday.",
+          consequence: "Aggregations re-open and update yesterday's window. Today's count is artificially low; yesterday's changes retroactively.",
+          de_catches_it: "Detect clock skew at ingestion. Either reject events with implausible timestamps, or reconcile against an authoritative ingest timestamp.",
+        },
+        {
+          scenario: "Producer crashes after writing some events but before writing others, then replays. Some events arrive twice; some out of order.",
+          consequence: "Without idempotent processing and event-time windowing, counts double; window emission boundaries get fuzzy.",
+          de_catches_it: "Idempotent consumers (dedup by event id) + event-time windowing (so duplicates land in the same window, where they're naturally dedupped if the operator is idempotent).",
+        },
+        {
+          scenario: "Team picks event time, but the events don't carry a timestamp — they extract one from the broker's append time.",
+          consequence: "\"Event time\" is actually \"ingest time\" in disguise. All the watermark machinery runs, but it's based on the wrong clock — you get processing-time semantics with extra complexity.",
+          de_catches_it: "Make sure event timestamps come from the actual event (set by the producer at the moment of the event), not by the messaging system. Track this from the start of the pipeline design.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "time-and-ordering",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "Watermark for your stream is currently at T=14:35. An event arrives with event_time=14:20 and no allowed-lateness configured. What happens?",
+      options: [
+        { id: "a", text: "It's added to the 14:00–14:30 window; the count is updated.", correct: false },
+        {
+          id: "b",
+          text: "Without allowed lateness, the event is dropped (or routed to a late-data side stream if configured). Its window closed when the watermark passed it.",
+          correct: true,
+        },
+        { id: "c", text: "The watermark rewinds to 14:20.", correct: false },
+        { id: "d", text: "The job crashes.", correct: false },
+      ],
+      explanation:
+        "Watermarks define when windows are \"done enough\" to emit and close. Once the watermark has passed a window's end, that window is closed and its state is freed — late events past that point are either dropped or sent to a side stream for inspection. \"Allowed lateness\" extends how long the window's state is retained for re-emission on late arrival. Without it, you've explicitly chosen lower latency at the cost of dropping late data.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // delivery-semantics
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "delivery-semantics",
+    sort_order: 1,
+    type: "dimensions",
+    payload: {
+      title: "The three nominal levels",
+      intro: "Each is a trade-off between duplication risk, loss risk, and coordination cost.",
+      items: [
+        {
+          name: "At-most-once",
+          description: "Producer commits before any guarantee of receipt; consumer commits offset before processing. May lose events; never duplicates. Almost always wrong for business data — used for high-volume best-effort metrics where loss is cheap.",
+          swe_parallel: "Fire-and-forget UDP",
+        },
+        {
+          name: "At-least-once",
+          description: "Producer retries until acknowledged; consumer processes then commits offset. Never loses events; may duplicate (e.g., processor crashes between processing and offset commit). The most common default.",
+          swe_parallel: "HTTP client with retry-on-5xx",
+        },
+        {
+          name: "Exactly-once (effectively-once)",
+          description: "Each event affects the result exactly once. Achieved by at-least-once delivery + (idempotent writes OR transactional commit). True \"exactly-once delivery\" isn't achievable; this is the practical equivalent.",
+          swe_parallel: "Idempotency key on a payment API + the server's deduplication store",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "delivery-semantics",
+    sort_order: 2,
+    type: "comparison",
+    payload: {
+      title: "Two paths to effectively-once",
+      left_label: "Idempotent writes",
+      right_label: "Transactional commit",
+      pairs: [
+        { left: "Deduplicate at the sink — same event written twice produces the same end state", right: "Output write and offset commit happen atomically; can't crash between them" },
+        { left: "Implementation: MERGE on event id, dedup table, UPSERT", right: "Implementation: Kafka transactions, Flink checkpoint + 2PC into sink" },
+        { left: "Cheap; works with any sink that supports unique keys", right: "Higher coordination cost; only works with transactional sinks" },
+        { left: "Per-event overhead: a lookup + maybe a no-op write", right: "Per-checkpoint overhead: two-phase commit handshake" },
+        { left: "End-to-end caveat: every sink must implement idempotency individually", right: "End-to-end caveat: every link must participate in the transaction; one non-transactional sink breaks the chain" },
+        { left: "The path most teams choose for cost reasons", right: "The path you need when the sink can't be made idempotent (or doesn't have natural keys)" },
+      ],
+    },
+  },
+  {
+    concept_slug: "delivery-semantics",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "Read-process-write atomicity failures",
+      items: [
+        {
+          scenario: "Consumer reads event, writes output, then crashes before committing offset.",
+          consequence: "On restart, the consumer re-reads the same event and writes the output again. Duplicate.",
+          de_catches_it: "Either idempotent output (a dedup-on-id MERGE), or a transactional commit binding the write and offset into one atomic step.",
+        },
+        {
+          scenario: "Team claims \"exactly-once Kafka pipeline,\" but the final sink is a plain HTTP POST to a third-party API.",
+          consequence: "The transactional chain is broken at the HTTP boundary. On replay, the API call is made twice — the third party sees two payments, two notifications.",
+          de_catches_it: "Idempotency at the boundary: the consumer attaches an idempotency key to each HTTP call; the third-party API deduplicates by that key. End-to-end exactly-once requires every link to participate.",
+        },
+        {
+          scenario: "Producer publishes an event, gets a network timeout on the ack, and retries.",
+          consequence: "The broker may have received the first message — now there are two copies of the same event in the topic.",
+          de_catches_it: "Kafka's idempotent producer (`enable.idempotence=true`) attaches a per-producer sequence number; the broker deduplicates retries automatically. Or design downstream consumers to be idempotent on the event's natural key.",
+        },
+        {
+          scenario: "Team chooses at-least-once for cost reasons, but downstream warehouse `INSERT`s rows without any deduplication.",
+          consequence: "Duplicates accumulate over time. Aggregations are inflated; hard to recover without recomputing from raw.",
+          de_catches_it: "At-least-once + idempotent writes (MERGE on event id, not INSERT). Idempotent consumers is the whole point.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "delivery-semantics",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "A team builds a fraud-detection pipeline. False positives are very costly (calling a customer about a non-fraudulent transaction destroys trust). The chosen architecture is Kafka → Flink → Postgres. What delivery semantic do they need, and how do they get it?",
+      options: [
+        { id: "a", text: "At-most-once — speed matters more than completeness.", correct: false },
+        { id: "b", text: "At-least-once is fine; minor duplicates are tolerable.", correct: false },
+        {
+          id: "c",
+          text: "Effectively-once: Flink's exactly-once checkpoint mode + Postgres sink with `MERGE ON CONFLICT` (idempotent writes by event id) OR a transactional sink that participates in Flink's 2PC.",
+          correct: true,
+        },
+        { id: "d", text: "Doesn't matter as long as the model is accurate.", correct: false },
+      ],
+      explanation:
+        "Fraud detection: false positives (duplicates) are costly. You want each transaction to trigger fraud evaluation exactly once. The path: Flink's exactly-once mode + an idempotent or transactional sink. Postgres supports `MERGE ON CONFLICT` which lets you idempotently apply each Flink output; that's the simpler path. The alternative is a transactional sink participating in 2PC, which is more complex but lets the chain stay strict end-to-end.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // state-management-in-streams
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "state-management-in-streams",
+    sort_order: 1,
+    type: "dimensions",
+    payload: {
+      title: "Kinds of state in a streaming job",
+      intro: "Different shapes of state, with different lifecycles.",
+      items: [
+        {
+          name: "Keyed state",
+          description: "Per-key: a running count for each `user_id`, a session object per `session_id`. Partitioned across workers by key, so each worker owns a slice of keys locally.",
+        },
+        {
+          name: "Operator state",
+          description: "Per-operator-instance: a Kafka source's current offset, a buffer of pending messages. Shared across keys but local to one worker.",
+        },
+        {
+          name: "Broadcast state",
+          description: "Replicated to every worker. Used for low-cardinality reference data — feature flags, rules, lookup tables — that every event must consult.",
+        },
+        {
+          name: "Window state",
+          description: "Per-window-per-key: the running aggregation for an open window. Released when the window closes.",
+        },
+        {
+          name: "Timer state",
+          description: "Scheduled callbacks (\"emit this state in 5 minutes\" or \"check for inactivity\"). Used for sessions, sliding windows, and any \"do this later\" pattern.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "state-management-in-streams",
+    sort_order: 2,
+    type: "comparison",
+    payload: {
+      title: "Ephemeral in-memory state vs durable checkpointed state",
+      left_label: "Ephemeral (don't do this)",
+      right_label: "Durable checkpointed (the actual model)",
+      pairs: [
+        { left: "Per-key counters in a worker's `HashMap`", right: "Per-key counters in RocksDB, partitioned by key, periodically snapshotted to durable storage" },
+        { left: "Survives normal operation; lost on crash", right: "Survives crash, machine replacement, software upgrade" },
+        { left: "All in JVM memory; bounded by heap size", right: "Backed by RocksDB on local disk; spills to disk; bounded only by available disk" },
+        { left: "Recovery means recomputing from scratch", right: "Recovery means restoring the last consistent (state + offset) snapshot from durable storage" },
+        { left: "Cleanup requires explicit application logic", right: "TTL, expiry, and window closure are first-class framework features" },
+      ],
+    },
+  },
+  {
+    concept_slug: "state-management-in-streams",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "State growth and loss scenarios",
+      items: [
+        {
+          scenario: "Dedup operator stores every seen event id in state. After 6 months, state size exceeds disk capacity.",
+          consequence: "Job crashes; recovery from checkpoint fails (checkpoint can't write); manual intervention required to truncate state.",
+          de_catches_it: "Always TTL dedup keys to a sensible window (24h, 7d). Or use probabilistic data structures (Bloom filter, HyperLogLog) for unbounded-cardinality dedup.",
+        },
+        {
+          scenario: "Per-user session state with no inactivity gap. Some users never have an inactivity gap (e.g., a bot account that pings every minute).",
+          consequence: "That session never closes; its state grows monotonically; eventually the worker holding that key runs out of memory.",
+          de_catches_it: "Always have a maximum session duration in addition to inactivity gap. A real session shouldn't run 30 days even if a bot keeps it open.",
+        },
+        {
+          scenario: "Team scales out the Flink job — adds workers. Existing state was partitioned across the old worker count.",
+          consequence: "Without proper rescaling, state can't be redistributed to the new workers. The job won't start, or runs with imbalanced load.",
+          de_catches_it: "Use \"rescalable state\" features (Flink supports this natively for keyed state via key groups). Test rescale operations against real checkpoints.",
+        },
+        {
+          scenario: "Checkpoint duration grows to 5 minutes because RocksDB state is now huge. Checkpoint interval has to grow to match.",
+          consequence: "If anything fails between checkpoints, you replay up to 5 minutes of events on recovery. Downstream duplicate handling becomes critical.",
+          de_catches_it: "Enable incremental checkpoints (Flink + RocksDB). Aggressively expire state. Consider sharding the operator across more workers to keep per-worker state smaller.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "state-management-in-streams",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt:
+        "Flink takes a consistent snapshot of (all operator state + corresponding stream offsets) atomically. Beyond fault tolerance, what *else* does this same mechanism deliver?",
+      options: [
+        { id: "a", text: "Faster query performance.", correct: false },
+        {
+          id: "b",
+          text: "Effectively-once processing semantics. On restart, restoring (state + offset) atomically guarantees the system can't produce duplicate output for events whose state was already snapshotted — the same checkpoint is the foundation for both fault-tolerant state AND exactly-once.",
+          correct: true,
+        },
+        { id: "c", text: "Lower latency at the operator level.", correct: false },
+        { id: "d", text: "Compatibility with non-Kafka brokers.", correct: false },
+      ],
+      explanation:
+        "The elegant unification at the heart of Flink: one mechanism (consistent snapshots of state + offset together) delivers both fault-tolerant state recovery AND effectively-once processing. After restoring the checkpoint, the system resumes consuming from exactly the offset that matches the snapshotted state — so no event is processed twice for the same state. This is why checkpointing and delivery semantics aren't separate engineering concerns in Flink; they're two faces of one mechanism.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // columnar-vs-row-storage
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "columnar-vs-row-storage",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "Row store vs. column store — the same data, two physical layouts",
+      left_label: "Row-oriented (Postgres, MySQL, MongoDB)",
+      right_label: "Column-oriented (Parquet, Arrow, ClickHouse, BigQuery)",
+      pairs: [
+        { left: "All fields of one record stored contiguously: `r1.id, r1.name, r1.amount, r2.id, r2.name, r2.amount, ...`", right: "All values of one column stored contiguously: `id: [r1, r2, ...]`, `amount: [r1, r2, ...]`" },
+        { left: "Reading 1 column from N rows = reading the full N rows", right: "Reading 1 column from N rows = reading only that column's bytes" },
+        { left: "Fast for point lookups (give me row #123)", right: "Slow for point lookups (must reassemble row from N column files)" },
+        { left: "Inserts append a row easily", right: "Inserts are batched; updates require rewriting column chunks" },
+        { left: "Compression is generic (per-page) — modest gains", right: "Compression is per-column with type-aware encodings (dictionary, RLE, delta) — often 5-10x" },
+        { left: "Best for: OLTP, CRUD, single-record reads", right: "Best for: OLAP, scans, aggregations over many rows" },
+      ],
+    },
+  },
+  {
+    concept_slug: "columnar-vs-row-storage",
+    sort_order: 2,
+    type: "dimensions",
+    payload: {
+      title: "Three mechanisms that make columnar fast (none of them are \"reading fewer columns\")",
+      intro: "Projection pushdown is the obvious win. These three less-obvious mechanisms are most of where the actual speed comes from.",
+      items: [
+        {
+          name: "Dictionary encoding",
+          description: "Low-cardinality strings (country, status, currency) are mapped to small integers and stored once in a dictionary. Reads decode on the fly; predicates can be evaluated directly on the codes without full decompression. The same data takes 1-2 bytes instead of 8-30.",
+          swe_parallel: "An enum vs a free-form string column",
+        },
+        {
+          name: "Run-length encoding (RLE)",
+          description: "Repeated adjacent values are stored as (value, count). `Providence, Providence, Providence, …` (10,000 rows) becomes `(Providence, 10000)`. Pays off enormously after sorting/clustering on that column.",
+          swe_parallel: "gzip's LZ77 sliding-window compression — but trivially decodable",
+        },
+        {
+          name: "Delta encoding",
+          description: "For sorted numeric columns (timestamps, sequential ids), store the difference from the previous value: `[1000, 1001, 1002]` becomes `[1000, +1, +1]`. Storage shrinks 5-10x.",
+          swe_parallel: "Diff-based version control: keep one base, then small deltas",
+        },
+        {
+          name: "Per-row-group min/max statistics",
+          description: "Parquet/ORC store the min and max value of each column for each row group (~50k-1M rows). The query planner reads only the stats footer, sees that the predicate can't match in this row group, and skips the entire chunk. *Data skipping* — file-level pruning without file I/O.",
+          swe_parallel: "A Bloom filter or per-block summary index that lives inside the file itself",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "columnar-vs-row-storage",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "When columnar bites back",
+      items: [
+        {
+          scenario: "Team treats Parquet like a transactional store and does single-row updates.",
+          consequence: "Each update rewrites the entire column chunk (or worse, the whole file). Append-throughput collapses; write-amplification destroys storage cost.",
+          de_catches_it: "Use a lakehouse table format (Iceberg/Delta/Hudi) that supports efficient MERGE/upserts via file-level rewrites. Or, accept that columnar is for batch writes and stream changes to a transactional system first.",
+        },
+        {
+          scenario: "API endpoint reads 50 random records by ID from a Parquet file.",
+          consequence: "Each record requires reassembling from N column files. Per-record latency is many times worse than a row store. The wrong tool for the job.",
+          de_catches_it: "Keep OLTP workloads on row-oriented systems. Use columnar for analytics. The lakehouse pattern is precisely this split: OLTP writes flow into row-oriented systems, then CDC-replicated to a columnar warehouse for analytics.",
+        },
+        {
+          scenario: "Team writes 10 million tiny Parquet files (one per minute).",
+          consequence: "Per-file overhead and metadata listing time dwarf the actual data work. Query planners scan thousands of footers just to figure out which to read.",
+          de_catches_it: "Compact files. Target 128-512 MB per Parquet file. Lakehouse formats (Iceberg/Delta) have built-in compaction jobs (`OPTIMIZE`).",
+        },
+        {
+          scenario: "Wide table (200 columns) where most queries actually need almost all of them.",
+          consequence: "Columnar's projection win evaporates. You pay all the columnar costs (rewrite-on-update, complex format) with little of the benefit.",
+          de_catches_it: "If query patterns reliably touch most columns, the row store may genuinely be a better fit — but reconsider whether the table is too wide and should be split. Wide tables that are mostly read in full are often a modeling smell.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "columnar-vs-row-storage",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt: "A Parquet file has 100 row groups, each with min/max stats per column. A query is `SELECT * FROM events WHERE event_date = '2026-06-01'`. How does the engine use those stats?",
+      options: [
+        { id: "a", text: "It reads every row group and applies the filter in memory.", correct: false },
+        {
+          id: "b",
+          text: "It reads just the file's metadata (the footer), checks each row group's min/max on `event_date`, and skips any row group whose range can't contain `2026-06-01`. Only the matching row groups are actually read from storage.",
+          correct: true,
+        },
+        { id: "c", text: "It rebuilds the file with only matching rows.", correct: false },
+        { id: "d", text: "It uses a separate B-tree index.", correct: false },
+      ],
+      explanation:
+        "Embedded min/max stats let the engine *skip* row groups without reading them — pure metadata-based pruning. This is what makes columnar formats fast at scale: not just \"read fewer columns,\" but \"don't even read the chunks that can't match.\" Same instinct as partition pruning, but at a finer granularity inside each file.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // partitioning-and-clustering
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "partitioning-and-clustering",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "OLTP sharding vs. OLAP partitioning — opposite goals, same operation",
+      left_label: "OLTP sharding",
+      right_label: "OLAP partitioning",
+      pairs: [
+        { left: "Goal: distribute *write* throughput across nodes", right: "Goal: let queries *skip* data they don't need to read" },
+        { left: "Key chosen to balance write load evenly (hash of user_id)", right: "Key chosen to align with the filters queries actually use (event_date)" },
+        { left: "Data lives on different nodes; cross-shard queries are expensive", right: "Data lives in different files/directories; pruning is essentially free at plan time" },
+        { left: "Hot keys = traffic skew = bad", right: "Hot partitions = the *point* — most queries hit a small recent slice" },
+        { left: "Reshard = expensive data migration", right: "Repartition = rewrite files; can be done offline" },
+        { left: "The mental model: load balancing", right: "The mental model: indexing for skipping" },
+      ],
+    },
+  },
+  {
+    concept_slug: "partitioning-and-clustering",
+    sort_order: 2,
+    type: "dimensions",
+    payload: {
+      title: "Skipping at three granularities — one technique, three scales",
+      intro: "The unifying idea worth stating plainly: every physical-layout decision in Phase 6 is the same instinct (\"avoid reading what the query doesn't need\") applied at a different scale. Coarse to fine:",
+      items: [
+        {
+          name: "Partition pruning (coarsest)",
+          description: "Whole files/directories skipped because their partition key can't match. `WHERE date = X` reads one of 365 partitions; 364 are pruned at plan time without I/O.",
+          swe_parallel: "Choosing which directory to grep before searching",
+        },
+        {
+          name: "Row-group skipping (middle)",
+          description: "Within a partition's files, individual row groups skipped because their min/max stats don't overlap the predicate. A 200 MB file might have 100 row groups; 95 might be skipped.",
+          swe_parallel: "Per-page summary indexes",
+        },
+        {
+          name: "Projection pushdown (finest)",
+          description: "Within each row group that *is* read, only the bytes of the referenced columns are loaded. A `SELECT amount FROM events` against a 50-column table reads 1/50th of the chunk.",
+          swe_parallel: "Reading only the field you need from a struct",
+        },
+        {
+          name: "Clustering / Z-ordering (orthogonal lever)",
+          description: "Physical sort within a partition. Cluster by `customer_id` and that column's min/max becomes tight per row group — now you can skip on `customer_id` too. Z-ordering interleaves multiple columns so skipping works across several dimensions at once.",
+          swe_parallel: "A composite (multi-column) index",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "partitioning-and-clustering",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "The two sharp failure modes of choosing a partition key",
+      items: [
+        {
+          scenario: "Partition by `user_id` across millions of users.",
+          consequence: "Millions of tiny partitions. Per-file overhead and catalog metadata listing dominate every query. Storage cost balloons (Parquet footer + manifest cost per file is non-trivial). Queries that *don't* filter by user_id (e.g., daily totals) become brutal.",
+          de_catches_it: "Don't partition by high-cardinality keys. Use them as *clustering* keys within a date-partitioned table instead. Time is almost always the right partition; everything else is clustering.",
+        },
+        {
+          scenario: "Partition by `year` for an event table that gets billions of rows per year.",
+          consequence: "Each partition is hundreds of GB. Queries asking for one day still scan a year. Partition pruning achieves almost nothing.",
+          de_catches_it: "Match partition granularity to your common query filters. Daily partitions for daily filters; hourly for hourly. Aim for 100MB–10GB per partition as a rough sweet spot.",
+        },
+        {
+          scenario: "Partition by `date` but queries filter on `customer_id` (which isn't in the partition key).",
+          consequence: "Partition pruning helps not at all. Every query scans all partitions. The partitioning was decorative.",
+          de_catches_it: "Either re-partition by the actual filter column, OR add a clustering key on `customer_id` so row-group min/max stats let the engine skip within partitions. Often both.",
+        },
+        {
+          scenario: "Partition by `date`, but the column physically stored in the file is just the integer day-of-month — the planner doesn't know about it.",
+          consequence: "The partition column has to be either part of the directory path or registered with the table catalog. Without that, the planner can't prune.",
+          de_catches_it: "Define partition columns explicitly in the table DDL or use a table format (Iceberg/Delta) that tracks partition values in metadata. \"Just storing files by date\" without a table catalog isn't enough.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "partitioning-and-clustering",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt: "Your event table has 2 years of daily-partitioned data (730 partitions). A typical query is `WHERE event_date BETWEEN '2026-05-01' AND '2026-05-07' AND customer_id = 'C-42'`. The table is partitioned by `event_date` but *not* clustered. What happens?",
+      options: [
+        { id: "a", text: "All 730 partitions are scanned.", correct: false },
+        {
+          id: "b",
+          text: "7 partitions are read (partition pruning works on `event_date`); but within each, the full file must be scanned because there's no clustering on `customer_id` to enable row-group skipping. Adding `CLUSTER BY customer_id` would let the engine prune further inside each partition's files.",
+          correct: true,
+        },
+        { id: "c", text: "The query fails because there's no index.", correct: false },
+        { id: "d", text: "1 partition is read.", correct: false },
+      ],
+      explanation:
+        "Partition pruning works on the partition key (event_date), so 723 of 730 partitions are skipped. But within each of the 7 remaining partitions, every row group is read because no statistics happen to make `customer_id` selective — the column's min/max in a random scan order is essentially the whole range. Adding clustering by `customer_id` physically co-locates each customer's rows, making min/max stats tight per row group and unlocking row-group skipping on that column too.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // distributed-compute-and-shuffle
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "distributed-compute-and-shuffle",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "Embarrassingly parallel vs. shuffle-bound — the two halves of a distributed query",
+      left_label: "Map / filter / project (cheap)",
+      right_label: "GROUP BY / JOIN / DISTINCT / ORDER BY (expensive)",
+      pairs: [
+        { left: "Each task processes its partition independently", right: "Tasks need data from other partitions" },
+        { left: "No cross-node communication during processing", right: "All-to-all network exchange to co-locate matching keys" },
+        { left: "Scales linearly: add workers, get proportional speedup", right: "Scales poorly: network bandwidth is the bottleneck" },
+        { left: "Cost: roughly CPU time × bytes read", right: "Cost: bytes shuffled × network cost (often 10-100x the CPU cost)" },
+        { left: "Predictable and easy to tune", right: "Failure-prone and skew-prone; the source of most query pathology" },
+        { left: "Free; you barely notice it", right: "The thing the whole performance discipline is about minimizing" },
+      ],
+    },
+  },
+  {
+    concept_slug: "distributed-compute-and-shuffle",
+    sort_order: 2,
+    type: "dimensions",
+    payload: {
+      title: "Join strategies — the lever you can actually pull",
+      intro: "When the planner picks a join strategy, it's deciding how much network exchange happens. Understanding the options is core performance work.",
+      items: [
+        {
+          name: "Broadcast join (no shuffle)",
+          description: "One side is small enough to copy to every node. The big side never moves; each node joins locally against its copy of the small side. Right call when the small side is < a few hundred MB.",
+          swe_parallel: "Putting a small lookup table in every service instance vs. calling a remote service",
+        },
+        {
+          name: "Sort-merge join (full shuffle, both sides)",
+          description: "Both sides are large. Each is shuffled by join key so matching keys end up on the same node, then sorted and merged. Unavoidable when broadcast won't fit, but the dominant cost of large joins.",
+          swe_parallel: "The classic merge step in mergesort, but across a network",
+        },
+        {
+          name: "Bucketed/co-located join (shuffle avoided at write time)",
+          description: "If both tables are pre-bucketed (hash-partitioned) by the join key when they were written, the engine knows matching keys are already co-located and skips the shuffle. Pays for itself when the same join runs many times.",
+          swe_parallel: "Pre-sharding two services by the same tenant ID so cross-service queries stay local",
+        },
+        {
+          name: "Map-side join (rare)",
+          description: "Both sides happen to be sorted by the join key already (e.g., output of a previous stage). The engine can merge directly without re-shuffling.",
+          swe_parallel: "Pipeline stages that preserve a sort order",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "distributed-compute-and-shuffle",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "Data skew — when partitioning the data doesn't partition the work",
+      items: [
+        {
+          scenario: "One key (the null key, a whale tenant, a bot user) holds 90% of the rows.",
+          consequence: "When the engine shuffles by that key, one worker gets 90% of the data while the other 999 sit idle. The job takes as long as that single straggler. Cluster size doesn't help — you can't parallelize one task.",
+          de_catches_it: "Salting: append a small random suffix to the hot key, so the rows spread across multiple buckets. Then add a final aggregation step to combine the salted results. Or isolate the hot key: filter it out, process separately, and union the results.",
+        },
+        {
+          scenario: "A junior engineer writes `SELECT count(*) FROM events GROUP BY user_id` over 100 TB.",
+          consequence: "The shuffle alone is 100 TB across the network. The actual count is tiny. The query takes hours and costs hundreds of dollars when a pre-aggregated daily counts table would have answered in seconds.",
+          de_catches_it: "Materialize commonly-grouped aggregates. Push aggregations down into the partitioned layer (pre-aggregated facts). Phase 2's medallion gold layer exists precisely for this.",
+        },
+        {
+          scenario: "A `SELECT DISTINCT user_id FROM events` is run repeatedly in a dashboard query.",
+          consequence: "DISTINCT requires shuffling all of `user_id` (high-cardinality) to deduplicate globally. Expensive every time.",
+          de_catches_it: "Maintain a `distinct_users_daily` aggregate table. Use HyperLogLog for approximate counts. Or trust that the dimension table already has each user exactly once and join from there instead of running DISTINCT.",
+        },
+        {
+          scenario: "Cluster is sized for steady-state; one query starts an unexpected 50 TB shuffle.",
+          consequence: "Spill to disk explodes; some workers run out of disk and fail; the query retries forever; other queries on the cluster stall waiting for shuffled memory.",
+          de_catches_it: "Set per-query memory/cost limits (BigQuery slot limits, Snowflake query timeout, Spark `spark.sql.shuffle.partitions` and `spark.driver.memory`). Catch pathological queries in CI by sampling EXPLAIN output.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "distributed-compute-and-shuffle",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt: "Your Spark job joins a 500 GB `events` table to a 50 MB `users` dimension table. By default it's doing a sort-merge join and taking 45 minutes. What's the most likely fix?",
+      options: [
+        { id: "a", text: "Add more workers.", correct: false },
+        {
+          id: "b",
+          text: "Force or hint a broadcast join — the 50 MB users table is small enough to copy to every worker. The 500 GB events table then never moves across the network, eliminating the dominant cost. Often a 10x+ speedup.",
+          correct: true,
+        },
+        { id: "c", text: "Repartition the events table.", correct: false },
+        { id: "d", text: "Increase shuffle partitions.", correct: false },
+      ],
+      explanation:
+        "The asymmetric sizes are the giveaway: 50 MB is well below Spark's default broadcast threshold (10 MB) but easy to raise. Once broadcast, the 500 GB table stays put and each worker joins locally against its in-memory copy of users. The shuffle of 500 GB across the network — the cost dominating the original 45 min — disappears. This is the simplest, biggest-ROI performance lever in distributed analytics.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // data-lake-warehouse-lakehouse
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "data-lake-warehouse-lakehouse",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "Lake vs. warehouse vs. lakehouse",
+      left_label: "Data lake (S3 + Parquet)",
+      right_label: "Data warehouse (Snowflake, BigQuery, Redshift)",
+      pairs: [
+        { left: "Schema-on-read — enforce shape at query time", right: "Schema-on-write — enforce shape at load time" },
+        { left: "Cheap (object storage; pennies per GB-month)", right: "Expensive (managed storage + compute coupling, historically)" },
+        { left: "Stores everything (Parquet, JSON, images, logs, ML data)", right: "Tabular only" },
+        { left: "Any tool can read (Spark, Trino, Flink, Pandas)", right: "Vendor-locked query engine" },
+        { left: "No transactions, no enforcement, no governance → swamp risk", right: "ACID, enforcement, governance built in" },
+        { left: "Asks: \"what data do we have?\"", right: "Asks: \"what data can we trust?\"" },
+      ],
+    },
+  },
+  {
+    concept_slug: "data-lake-warehouse-lakehouse",
+    sort_order: 2,
+    type: "dimensions",
+    payload: {
+      title: "What an open table format (Iceberg / Delta / Hudi) actually is",
+      intro: "Mechanically, a lakehouse table format is a *thin metadata layer over a directory of Parquet files in a lake*. The Parquet files are the data; the metadata is what gives you warehouse-grade features.",
+      items: [
+        {
+          name: "Transaction log",
+          description: "An append-only log of changes to the table (file added, file removed, schema altered). Each commit appends a new entry. This is the WAL of the table — the same primitive at the heart of any ACID system.",
+          swe_parallel: "Git's commit log",
+        },
+        {
+          name: "Manifest / snapshot",
+          description: "For each version of the table, a list of which Parquet files constitute it. Reading the table at version N means reading the manifest at version N and then those exact files. Older versions remain valid (until garbage collection).",
+          swe_parallel: "A git tree object — the file listing at a commit",
+        },
+        {
+          name: "ACID transactions",
+          description: "Multiple writers can append safely; the log is the linearization point. A failed write doesn't leave half-written state visible; readers always see a consistent version.",
+          swe_parallel: "Optimistic concurrency control at the table level",
+        },
+        {
+          name: "Time travel",
+          description: "Querying the table as of an earlier version (`AS OF VERSION 42` or `AS OF TIMESTAMP '2026-05-01'`). The manifest at that version still exists; reading from it gives you the table exactly as it was. Ties back to Phase 2's SCD-as-git, Phase 4's backfilling, and audit/debugging needs.",
+          swe_parallel: "`git checkout <commit>` — recover any past state",
+        },
+        {
+          name: "Schema evolution",
+          description: "Add, drop, rename, and re-type columns without rewriting historical files. Each schema is stored in the metadata and applied during reads. Avoids the \"backfill the whole table to change one column\" pain.",
+          swe_parallel: "Protobuf/Avro forward-compatible schema rules",
+        },
+        {
+          name: "Efficient MERGE/upserts",
+          description: "Lakehouse formats support row-level MERGE (`MERGE INTO target USING source ON key WHEN MATCHED THEN UPDATE ...`) by rewriting only the affected files. Brings idempotent upserts to a lake without rebuilding the table.",
+          swe_parallel: "PostgreSQL's INSERT ... ON CONFLICT, lifted into the lakehouse world",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "data-lake-warehouse-lakehouse",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "How lakes become swamps (and how lakehouses fix it)",
+      items: [
+        {
+          scenario: "Team starts dumping raw events into S3 with no schema or catalog. Six months later, no one knows what's in the bucket.",
+          consequence: "The lake is unqueryable in practice. ML and analytics teams give up and ask engineering to rebuild data pipelines. The \"swamp\" outcome.",
+          de_catches_it: "Use a table format (Iceberg/Delta) from day one — it enforces schemas, tracks file membership, and gives the catalog a programmatic source of truth.",
+        },
+        {
+          scenario: "Two writers append to the same Parquet directory concurrently. Both add files; both update the catalog independently.",
+          consequence: "Inconsistent table state. One writer's files may be invisible. A subsequent read may see a mid-write state.",
+          de_catches_it: "Lakehouse table formats serialize commits through the transaction log — concurrent writers compete to append a log entry; the loser retries. Like optimistic concurrency in a database.",
+        },
+        {
+          scenario: "Producer changes a column type (string → int) in a daily Parquet write without coordination.",
+          consequence: "Old files have strings; new files have ints. Schema-on-read can't reconcile them. Queries fail or silently return garbage.",
+          de_catches_it: "Use table-format schema evolution (`ALTER TABLE ALTER COLUMN`). The format tracks per-version schemas and applies them per-file during reads. Or — better — enforce schema-on-write via Phase 7's data contracts.",
+        },
+        {
+          scenario: "A pipeline writes 10,000 small Parquet files per day. After 6 months, the table has millions of tiny files.",
+          consequence: "Query planning slows to a crawl just enumerating files. Reads spend more time on file metadata than on data.",
+          de_catches_it: "Lakehouse formats have built-in compaction (`OPTIMIZE`, `VACUUM`). Run it periodically as a maintenance job. Aim for ~128–512 MB per file.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "data-lake-warehouse-lakehouse",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt: "An auditor asks: \"What did the customers table look like on March 15, 2026, before the bad migration on March 16?\" Your table is in Apache Iceberg. What do you do?",
+      options: [
+        { id: "a", text: "Restore from backup.", correct: false },
+        {
+          id: "b",
+          text: "Run `SELECT * FROM customers FOR TIMESTAMP AS OF '2026-03-15 23:59:59'` (or equivalent). Iceberg's manifest at the snapshot just before March 16 still lists the original file set; the query reads those files directly and returns the table exactly as it was. No backup restore needed.",
+          correct: true,
+        },
+        { id: "c", text: "Tell the auditor it's not possible.", correct: false },
+        { id: "d", text: "Rebuild the table from raw events.", correct: false },
+      ],
+      explanation:
+        "Time travel is built into lakehouse table formats — every commit creates a snapshot, and snapshots are retained until they're explicitly garbage-collected (usually after a configurable retention period, often 7 days+). Querying any historical version is as cheap as a normal query. It's the same `git checkout <commit>` workflow, applied to tabular data. This is the single biggest operational win over a vanilla lake.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // cost-as-performance
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "cost-as-performance",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "On-prem vs. cloud — and why cloud collapses cost and performance into one axis",
+      left_label: "On-prem (legacy)",
+      right_label: "Cloud (modern)",
+      pairs: [
+        { left: "Hardware is a sunk capital cost", right: "Compute is metered by the second or by the byte" },
+        { left: "A slow query is *slow-but-free* — the box was already paid for", right: "A slow query is a literal line item on next month's invoice" },
+        { left: "Optimize performance for users; cost optimization is a separate, longer-term concern", right: "Optimize performance for users; cost is the *same* optimization at the same time" },
+        { left: "Capacity planning is a 6-month conversation", right: "Capacity expands and contracts per-query" },
+        { left: "Storage and compute coupled (hardware was bought together)", right: "Storage and compute decoupled (S3 + elastic clusters)" },
+        { left: "Quarterly performance reviews", right: "Daily cost dashboards" },
+      ],
+    },
+  },
+  {
+    concept_slug: "cost-as-performance",
+    sort_order: 2,
+    type: "dimensions",
+    payload: {
+      title: "Every technique in the series, restated as a cost lever",
+      intro: "Phase 6 is where the earlier phases cash out financially. Each technique reduces bytes touched; bytes touched is what the cloud charges for.",
+      items: [
+        {
+          name: "Columnar storage",
+          description: "Reads only the bytes of selected columns. A `SELECT amount` from a 50-column table reads 1/50th of the data. Direct multiplier on cost.",
+        },
+        {
+          name: "Partitioning",
+          description: "Prunes whole partitions the query doesn't need. `WHERE date = '2026-06-01'` against 2 years of daily data touches 1/730 of storage.",
+        },
+        {
+          name: "Clustering",
+          description: "Skips row groups within each partition. Stacks multiplicatively with partitioning: a 2-year table with daily partitions and clustering on `customer_id` might touch 1/100,000 of total storage for a single-customer-single-day query.",
+        },
+        {
+          name: "Denormalization",
+          description: "Avoids joins, which avoids shuffles, which avoids the largest cost in distributed queries. Storage cost goes up modestly; compute cost goes down dramatically.",
+        },
+        {
+          name: "Materialized views / pre-aggregations",
+          description: "Pay storage once to avoid recomputing the same aggregation N times. Classic caching trade-off: cheap storage subsidizes expensive compute.",
+        },
+        {
+          name: "Incremental loads",
+          description: "Process only new data each run instead of rescanning history. Daily compute drops from O(table) to O(daily increment) — often 100x+ cost reduction.",
+        },
+        {
+          name: "Batch over streaming when freshness doesn't pay back",
+          description: "Streaming runs compute continuously and bills continuously. Batch runs once per cadence and bills once. If the consumer's decision doesn't act on data in seconds, batch is dramatically cheaper.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "cost-as-performance",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "Cloud-bill horror stories",
+      items: [
+        {
+          scenario: "Analyst writes `SELECT * FROM events` in BigQuery to \"see what's in there.\" Table is 100 TB.",
+          consequence: "$500 query (at $5/TB scanned). One curiosity click.",
+          de_catches_it: "BigQuery's `LIMIT 100` does *not* limit bytes scanned — the engine still reads the table to find any 100 rows. Use partitioned previews, `INFORMATION_SCHEMA`, or table samples. Set per-query byte limits (`maximum_bytes_billed`). Per-user spend alerts.",
+        },
+        {
+          scenario: "Snowflake virtual warehouse left running 24/7 because someone disabled auto-suspend.",
+          consequence: "Compute billed continuously at the warehouse's per-second rate. $10k/month for nothing.",
+          de_catches_it: "Always set auto-suspend (60–180 seconds typically). Use resource monitors with hard-stop thresholds. Tag warehouses to teams and put spend dashboards in front of the relevant manager.",
+        },
+        {
+          scenario: "Dashboard fires off the same expensive query every page load. No caching. 200 users hit it daily.",
+          consequence: "The query that should run once runs 200 times. Costs scale linearly with traffic instead of with data freshness.",
+          de_catches_it: "Materialize the underlying aggregation. Let the dashboard hit the materialized table, which refreshes once on a schedule. The same query that cost $5/run × 200 runs/day = $1000/day collapses to $5/day.",
+        },
+        {
+          scenario: "A daily pipeline does `INSERT OVERWRITE` of the full target table from scratch each run, \"to be safe.\"",
+          consequence: "Re-reads and re-writes all historical data daily. Bills for the full table every day instead of just for the new partition.",
+          de_catches_it: "Incremental: process only the new partition (`INSERT OVERWRITE PARTITION (date='today')`). Idempotency (Phase 3) lets you rerun safely without redoing all history.",
+        },
+        {
+          scenario: "Team builds a streaming pipeline for an analyst dashboard that refreshes every 5 minutes.",
+          consequence: "A continuous streaming cluster (Flink/Kafka Connect) runs 24/7, billing every second. A 5-minute micro-batch would do the same job for a tiny fraction of the cost.",
+          de_catches_it: "Streaming pays off only when a decision *acts* on data within seconds — fraud, alerts, live personalization. A dashboard that refreshes every 5 minutes is a 5-minute batch job. Phase 1's batch-vs-real-time discipline, applied here.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "cost-as-performance",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt: "Your most expensive BigQuery query reads 80 TB/day (~$400/day, $12k/month). It's a `GROUP BY user_id, country` over the last 30 days of events, filtered to the marketing team's dashboard. Which intervention has the highest leverage?",
+      options: [
+        { id: "a", text: "Buy reserved slots to lock in a lower per-byte rate.", correct: false },
+        {
+          id: "b",
+          text: "Materialize the daily `(user_id, country)` aggregation as a pre-aggregated table that refreshes once per night. The dashboard reads the aggregate instead of scanning raw events. Goes from 80 TB/day to a few GB/day — a ~1000x cost reduction.",
+          correct: true,
+        },
+        { id: "c", text: "Add more workers.", correct: false },
+        { id: "d", text: "Rewrite the query as a stored procedure.", correct: false },
+      ],
+      explanation:
+        "Pre-aggregation pays cheap storage to avoid expensive compute, repeatedly. The dashboard doesn't need to recompute the same `GROUP BY` against 80 TB of raw events every page load — that work is done once per day in a scheduled pipeline, and the result (a tiny aggregate table) is what the dashboard reads. Reserved slots and bigger clusters lock in a discount but don't change the fundamental bytes-touched. Materialization changes the bytes-touched by orders of magnitude. *Performance and cost are the same axis; touch less data, pay less, finish faster.*",
+    },
+  },
 ];
