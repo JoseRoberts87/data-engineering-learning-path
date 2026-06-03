@@ -4297,4 +4297,523 @@ export const sections: SectionSeed[] = [
         "Pre-aggregation pays cheap storage to avoid expensive compute, repeatedly. The dashboard doesn't need to recompute the same `GROUP BY` against 80 TB of raw events every page load — that work is done once per day in a scheduled pipeline, and the result (a tiny aggregate table) is what the dashboard reads. Reserved slots and bigger clusters lock in a discount but don't change the fundamental bytes-touched. Materialization changes the bytes-touched by orders of magnitude. *Performance and cost are the same axis; touch less data, pay less, finish faster.*",
     },
   },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // data-contracts
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "data-contracts",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "Schema documentation vs. enforced data contract",
+      left_label: "Documentation (no enforcement)",
+      right_label: "Data contract (CI-enforced)",
+      pairs: [
+        { left: "A Confluence page or README the producer maintains \"when they remember\"", right: "A machine-readable spec versioned with the producer's code" },
+        { left: "Consumers find out about breaking changes when their dashboards break", right: "The producer's CI fails on a breaking change before it ships" },
+        { left: "Captures column names and types if you're lucky", right: "Captures types **plus** semantics (\"revenue is net of refunds\"), nullability, freshness SLA, quality promises, ownership, change policy" },
+        { left: "Producer treats data as exhaust", right: "Producer treats data as a deliberate product interface" },
+        { left: "Data team reverse-engineers what's true after each incident", right: "Truth is single-sourced; producer + consumers + platform agree at deploy time" },
+        { left: "Coupling is hidden", right: "Coupling is explicit and owned" },
+      ],
+    },
+  },
+  {
+    concept_slug: "data-contracts",
+    sort_order: 2,
+    type: "dimensions",
+    payload: {
+      title: "What a real data contract carries — semantics + SLAs, not just types",
+      intro: "A contract that's only column-name-and-type is barely better than a header comment. The contracts that prevent real incidents capture the things that hurt when violated.",
+      items: [
+        {
+          name: "Schema",
+          description: "Column names, types, nullability, defaults. The minimum — but minimum isn't enough.",
+        },
+        {
+          name: "Semantics (the field definition)",
+          description: "What does this column actually mean? \"`revenue` = gross before refunds\" vs. \"`revenue` = net of refunds and chargebacks.\" Two contracts can have identical schemas and produce wildly different downstream numbers if the semantics disagree.",
+        },
+        {
+          name: "Freshness SLA",
+          description: "\"Updated within 60 minutes of source events.\" Consumers can plan against this; the platform can monitor it; a missed freshness is a contract violation, not a vague problem.",
+        },
+        {
+          name: "Quality guarantees",
+          description: "\"`customer_id` is never null, always unique, always exists in `customers`.\" Expectations the consumer can rely on without re-validating defensively.",
+        },
+        {
+          name: "Ownership",
+          description: "A named team (and ideally a Slack channel + on-call). When the contract is violated, you know whom to ping. No more \"who owns this?\" Slack threads.",
+        },
+        {
+          name: "Change policy",
+          description: "How breaking changes will be handled: versioning scheme, deprecation window, expected migration path. Sets expectations for consumers and pre-commits the producer to a discipline.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "data-contracts",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "What contracts prevent — and what slips past weak ones",
+      items: [
+        {
+          scenario: "App team renames `customer_id` → `cust_id` in their service database. No one tells the data team.",
+          consequence: "The ingestion pipeline either fails (best case — caught fast) or silently writes nulls (worst case — wrong dashboards for days).",
+          de_catches_it: "Contract on the *producer's emitted events*, enforced in the producer's CI. Renames either don't deploy or deploy as a versioned change with a deprecation window.",
+        },
+        {
+          scenario: "Producer adds a column `vat_amount`. Consumers ignored it. Six months later, the producer changes `revenue` to *exclude* VAT, on the assumption consumers are adding `vat_amount` themselves.",
+          consequence: "Twelve dashboards silently start reporting numbers ~15% lower than yesterday. Type checks all pass. The contract was structural, not semantic.",
+          de_catches_it: "Semantic contracts: \"revenue includes VAT\" as part of the contract. Any change to that definition is a breaking-change event, not an internal tweak.",
+        },
+        {
+          scenario: "A nullable column is documented as \"non-null in practice.\" Six months later, 0.5% of rows are null. Downstream aggregations divide-by-zero or skip rows.",
+          consequence: "Subtle off-by-percent errors that no one notices until the year-end financial close.",
+          de_catches_it: "Nullability isn't documentation — it's a contract clause backed by a CI check on a sample of recent data. If 0.5% nulls violate the contract, the pipeline fails.",
+        },
+        {
+          scenario: "The contract exists but isn't enforced anywhere. Producer ships a breaking change; CI passes (it doesn't know about the contract); consumers find out at runtime.",
+          consequence: "A contract that isn't enforced is documentation that rots. Worse, because everyone assumed it was the source of truth.",
+          de_catches_it: "Enforcement is the contract: a schema registry that rejects incompatible writes, a CI step on the producer side that diffs against the contract, contract tests at the boundary. No enforcement = no contract.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "data-contracts",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt: "An application team owns `events.purchase_completed`. The data team wants a contract. Where does the contract live, and who enforces it?",
+      options: [
+        { id: "a", text: "In the data team's dbt repo, enforced by dbt tests.", correct: false },
+        {
+          id: "b",
+          text: "With the *producer* (the application team) — in their service repo, versioned with their code, enforced in their CI. The producer can't ship a breaking change because their own build fails. This is the *shift-left* discipline: the source treats data emission as a deliberate product interface.",
+          correct: true,
+        },
+        { id: "c", text: "In a shared wiki where everyone can edit it.", correct: false },
+        { id: "d", text: "In the BI tool's metadata.", correct: false },
+      ],
+      explanation:
+        "Shift-left is the cultural move that makes contracts real. If the contract lives in the data team's repo, it's still the data team's job to defensively reverse-engineer what the producer did. If it lives in the producer's repo and gates *their* CI, the producer literally can't ship a breaking change — and they start treating their data as a product. That's the same shift as treating an HTTP API as a deliberate interface rather than \"however our internal service happens to respond.\"",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // observability
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "observability",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "Software observability vs. data observability — same primitives, different objects",
+      left_label: "Software (Datadog, Sentry, OpenTelemetry)",
+      right_label: "Data (DataHub, OpenLineage, Monte Carlo)",
+      pairs: [
+        { left: "Metrics: latency, error rate, throughput, CPU", right: "Quality metrics: freshness, volume, null rate, distribution drift" },
+        { left: "Logs: per-request, per-service", right: "Pipeline logs: per-job, per-table, per-partition" },
+        { left: "Traces: how a request flowed through services", right: "Lineage: how a column flowed through transformations" },
+        { left: "Alerts on SLO violations (latency p99, error rate)", right: "Alerts on contract violations (freshness SLA, quality threshold, schema drift)" },
+        { left: "Dashboards for engineers debugging incidents", right: "Health badges for consumers reading data they may not have written" },
+        { left: "\"My service is healthy\"", right: "\"My dataset is trustworthy\"" },
+      ],
+    },
+  },
+  {
+    concept_slug: "observability",
+    sort_order: 2,
+    type: "dimensions",
+    payload: {
+      title: "The five pillars of data observability",
+      intro: "The canonical taxonomy. Each pillar catches a different class of silent failure that a green pipeline run hides.",
+      items: [
+        {
+          name: "Freshness",
+          description: "How recently was the data updated, and is that within the contract? Catches: pipeline stalled but didn't error, upstream system stopped emitting, sensor stuck.",
+        },
+        {
+          name: "Volume",
+          description: "How many rows arrived, and is that within the expected range? Catches: upstream filter accidentally too restrictive, partition under-loaded, source table truncated.",
+        },
+        {
+          name: "Distribution",
+          description: "Are values in expected ranges and shapes? Catches: a currency conversion silently dropped a factor of 100, a country code field suddenly has new values, anomalous outliers from a bug.",
+        },
+        {
+          name: "Schema",
+          description: "Did columns change unexpectedly? Catches: producer renamed a column, type changed, new required column appeared, deprecated column was dropped.",
+        },
+        {
+          name: "Lineage",
+          description: "Which upstream feeds this downstream? Catches nothing on its own — but when something else breaks, lineage tells you the root cause and the blast radius in minutes instead of days. Column-level lineage maps each metric to its source fields.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "observability",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "Silent failures pipeline monitoring misses",
+      items: [
+        {
+          scenario: "An upstream Kafka topic stops emitting at 2 AM. The consumer pipeline is happy — there's no error to report, just no new data.",
+          consequence: "The pipeline runs green every hour. Downstream dashboards quietly stop updating. Two days later, an executive notices yesterday's numbers haven't changed.",
+          de_catches_it: "Freshness monitoring on the destination dataset: \"if `last_updated` is more than 60 minutes ago, alert.\" Watches outcome (is the data current?) instead of mechanism (did the job run?).",
+        },
+        {
+          scenario: "A producer changes the encoding of a `country` column from ISO 3166-1 alpha-2 (\"US\") to alpha-3 (\"USA\"). Type stays string. Pipeline runs fine.",
+          consequence: "All downstream joins on `country` against reference tables fail to match. Aggregate \"sales by country\" becomes a graveyard of NULL groups.",
+          de_catches_it: "Distribution monitoring catches the value-set change (new strings appearing, old strings disappearing). Schema-level checks miss it because the type didn't change.",
+        },
+        {
+          scenario: "A bug in an upstream service starts emitting `revenue` in cents instead of dollars. Type and freshness and volume all look fine.",
+          consequence: "All revenue dashboards show numbers 100x larger. Executives notice; the data team scrambles to find the source. Without lineage, this is a multi-day archaeology dig across many teams.",
+          de_catches_it: "Distribution monitoring catches the 100x shift in `revenue`'s typical range. Column-level lineage immediately points to the producing service, giving the data team a one-step root cause instead of a graph traversal.",
+        },
+        {
+          scenario: "The transformation that builds `gold.daily_revenue` is broken, but it runs successfully and produces output. The output table is full of stale or incorrect values.",
+          consequence: "A green job; a broken dataset. Consumers trust the dashboards, which are wrong.",
+          de_catches_it: "The platform separates job health from data health. Quality checks run on the output dataset (assertions: not null, ranges, freshness, expected row count); a failed assertion blocks downstream consumers and pages the owner, regardless of job exit code.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "observability",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt: "A revenue dashboard shows numbers 5x higher than yesterday. The transformation pipeline ran successfully. What two things does a lineage-aware platform give you within minutes?",
+      options: [
+        { id: "a", text: "A faster way to recompute the dashboard.", correct: false },
+        {
+          id: "b",
+          text: "Root cause and blast radius: column-level lineage points from the dashboard's revenue metric back through every transformation to the exact source field (root cause); the downstream traversal lists every other dashboard / ML feature / extract that depends on the same source (blast radius). Same as distributed tracing for a buggy HTTP response.",
+          correct: true,
+        },
+        { id: "c", text: "A backup of yesterday's dashboard.", correct: false },
+        { id: "d", text: "A faster query plan.", correct: false },
+      ],
+      explanation:
+        "Lineage is data's distributed tracing. Without it, every wrong number is multi-day archaeology — Slack threads, code reading, table-by-table grep. With it, root cause + blast radius are a graph traversal. Column-level (which exact source field feeds this metric) is the fine-grained version; without it, you only know which tables feed which tables, which isn't precise enough at scale.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // governance
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "governance",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "Per-pipeline policy vs. policy-as-code with attribute tags",
+      left_label: "Per-pipeline enforcement",
+      right_label: "Policy-as-code (OPA-style)",
+      pairs: [
+        { left: "Each pipeline / view / dashboard hand-applies its own masking + access rules", right: "Columns are tagged once (e.g., `pii: true`); a central engine applies the rule uniformly everywhere" },
+        { left: "Drift is inevitable: new pipelines forget the rule; rules change in one place, not another", right: "One policy, applied at query time by the platform — can't be skipped without explicit override" },
+        { left: "Audit is per-place — \"check all 200 pipelines to see if SSN is masked\"", right: "Audit is centralized — \"check the policy, confirm the engine enforces it\"" },
+        { left: "Slow to update: every pipeline has to be edited when the rule changes", right: "Update the policy once; the change applies everywhere immediately" },
+        { left: "Effectively unauditable at scale", right: "Auditable by design — the policy *is* the proof" },
+        { left: "Data equivalent of \"every microservice checks its own auth\"", right: "Data equivalent of \"central authz service with declarative policy\"" },
+      ],
+    },
+  },
+  {
+    concept_slug: "governance",
+    sort_order: 2,
+    type: "dimensions",
+    payload: {
+      title: "The governance toolbox (and the one problem with no SWE analogue)",
+      intro: "Four mechanisms are direct lifts from application security. The fifth — GDPR right-to-erasure against immutable, replicated data — is genuinely new.",
+      items: [
+        {
+          name: "Column-level security",
+          description: "Mask or hide specific columns (SSN, salary, email) per role. Most analysts see `***-**-1234`; HR sees the full number. The masking policy is centralized; queries apply it transparently.",
+        },
+        {
+          name: "Row-level security",
+          description: "Filter rows visible to a user (the EU analyst sees only EU rows, the regional manager sees only their region). Same access-control machinery; finer granularity.",
+        },
+        {
+          name: "Policy-as-code",
+          description: "Declarative policies in a separate language (Rego/OPA), version-controlled, CI-tested. Tag columns or tables once (`pii`, `restricted`, `regulated`); the engine applies policy automatically. Same instinct as treating infrastructure as code.",
+        },
+        {
+          name: "Audit trails",
+          description: "Immutable logs of who queried what data when. Required for SOC2, HIPAA, GDPR. Same primitive as access logging in application infrastructure, but the resource is data.",
+        },
+        {
+          name: "Right-to-be-forgotten (the genuinely-new problem)",
+          description: "GDPR says \"erase this user's data everywhere on request.\" But the data world is *append-only, replicated, time-traveled, cached, extracted into ML datasets, copied into Bronze/Silver/Gold layers*. \"Delete everywhere\" runs directly against immutability. Solutions: tombstones (mark deleted, filter on read), crypto-shredding (encrypt per-user, drop the key), lineage-driven cascade deletion. None are clean.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "governance",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "Governance failures that hit the news",
+      items: [
+        {
+          scenario: "PII column (SSN) is masked in three pipelines but not in a fourth. A contractor builds a dashboard from the fourth.",
+          consequence: "Unmasked SSNs visible to anyone with dashboard access. Breach report, regulatory fine, board-level incident.",
+          de_catches_it: "Tag the column as `pii: true` once. A central policy engine masks it at query time across every consumer. Can't be missed by a new pipeline — policy is applied by the query engine, not by each pipeline author.",
+        },
+        {
+          scenario: "GDPR deletion request: \"erase user 42 everywhere.\" Team deletes from the production database. Six months later, an auditor finds the user in three bronze tables, two ML extracts, a backup snapshot, and a cached Looker dashboard.",
+          consequence: "Material GDPR violation. Regulator finds the user's data still exists; \"erased from production\" is not \"erased everywhere.\"",
+          de_catches_it: "Lineage-driven cascade deletion (find every downstream table that contains the user; delete in each) OR crypto-shredding (encrypt PII per-user; on deletion, destroy the per-user key — the data becomes ciphertext nobody can read). Both are real engineering work, not a single DELETE.",
+        },
+        {
+          scenario: "An analyst leaves the company. Their permissions aren't revoked. Six months later, their personal AWS account is still pulling from production.",
+          consequence: "An ex-employee has read access to all current customer data. Discovered during a quarterly access review.",
+          de_catches_it: "Tie data access to identity provider lifecycle. When the user is deprovisioned in Okta/Google Workspace, all data permissions revoke automatically. Periodic access reviews catch the gaps the lifecycle integration misses.",
+        },
+        {
+          scenario: "Team applies row-level security but enforces it in the BI tool, not the query engine. An analyst connects to the data warehouse directly with a Python client.",
+          consequence: "RLS is bypassed. The analyst sees all rows including those they shouldn't.",
+          de_catches_it: "Enforce policies at the query engine (data warehouse / lakehouse / query gateway), not at the application layer. Any client that connects must traverse the policy enforcement point. Same discipline as enforcing auth at the API gateway, not the UI.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "governance",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt: "A user invokes their GDPR right-to-be-forgotten. Their data exists in: prod Postgres, bronze events table, silver+gold aggregates, two ML training datasets, weekly extracts in S3 going back 2 years, and Iceberg time-travel snapshots. What's the most practical approach?",
+      options: [
+        { id: "a", text: "Run `DELETE FROM users WHERE user_id = 42` in production. Done.", correct: false },
+        {
+          id: "b",
+          text: "Crypto-shredding: when the user signed up, their PII was encrypted with a per-user key stored separately. On deletion, destroy that key. The encrypted data still exists across all systems, but it's now permanently unreadable. Complements lineage-driven deletion for the records you can practically rewrite (prod DB, recent extracts).",
+          correct: true,
+        },
+        { id: "c", text: "Manually find and delete every copy.", correct: false },
+        { id: "d", text: "Tell the user their request can't be fulfilled.", correct: false },
+      ],
+      explanation:
+        "GDPR deletion against an immutable, replicated substrate is the genuinely-new problem of Phase 7. The clean solution is crypto-shredding: encrypt PII at rest per-user, with the key stored in a key-management system. Deletion = destroy the key. The ciphertext is permanently unreadable everywhere it exists — bronze, silver, gold, extracts, snapshots — without having to rewrite any of it. For systems where the user's data isn't encrypted that way, lineage-driven cascade deletion is the fallback: walk the lineage graph, delete each downstream copy. Real platforms combine both.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // self-serve-data
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "self-serve-data",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "Ticket-queue data team vs. self-serve platform team",
+      left_label: "Ticket-queue data team",
+      right_label: "Self-serve platform team",
+      pairs: [
+        { left: "Every dashboard / dataset request goes through an engineer", right: "Domain teams ship datasets on a paved road; analysts query a catalog directly" },
+        { left: "Engineering velocity bottlenecked by the team's headcount", right: "Engineering velocity bottlenecked by the platform's capabilities (and scaled by adding domains)" },
+        { left: "Knowledge lives in engineers' heads and Slack archives", right: "Knowledge lives in the catalog, the semantic layer, and the templates" },
+        { left: "New analyst onboarding takes weeks (\"learn what data we have\")", right: "New analyst discovers datasets in the catalog, queries via the BI tool with guardrails baked in" },
+        { left: "Tribal knowledge: \"ask Sarah\"", right: "Self-evident: \"check the catalog\"" },
+        { left: "Burns out engineers; ships slowly", right: "Engineers build leverage; the org ships faster" },
+      ],
+    },
+  },
+  {
+    concept_slug: "self-serve-data",
+    sort_order: 2,
+    type: "dimensions",
+    payload: {
+      title: "What a real self-serve data platform provides",
+      intro: "Five capabilities that turn data engineering from a service desk into a platform team. Together they're what Data Mesh calls *self-serve data infrastructure*.",
+      items: [
+        {
+          name: "Data catalog (discovery)",
+          description: "What datasets exist? What do they mean? Who owns them? Are they trustworthy? Tools like DataHub, Amundsen, OpenMetadata. The data equivalent of an internal API portal or service catalog — the first place a new user looks.",
+        },
+        {
+          name: "Semantic / metrics layer",
+          description: "One canonical definition of \"revenue,\" \"active user,\" \"churn,\" etc. So you don't end up with three dashboards reporting subtly different revenue numbers because three analysts each rolled their own SQL. The semantic layer is where business definitions get versioned and centralized.",
+        },
+        {
+          name: "Templates and frameworks",
+          description: "Want to ship a new dataset? Don't build a bespoke pipeline — clone the template (dbt project structure, contract definition, default tests, observability hooks, sensible naming). New datasets all look the same; the platform team only has to maintain the template.",
+        },
+        {
+          name: "Governed query access",
+          description: "The query interface that analysts and ML engineers use enforces RBAC + PII masking + cost limits automatically. Users don't have to remember to apply guardrails — the platform applies them.",
+        },
+        {
+          name: "Self-serve observability",
+          description: "Freshness, lineage, and quality visible to consumers — not just engineers. An analyst opening a dataset sees: when it was last updated, what feeds it, and whether quality checks are passing. *Trust through transparency.*",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "self-serve-data",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "How \"self-serve\" goes wrong without the right guardrails",
+      items: [
+        {
+          scenario: "Platform team gives every analyst direct SQL access to the warehouse with no controls.",
+          consequence: "Within a quarter: three different dashboards reporting different revenue numbers; a junior analyst's runaway `JOIN` costs $5,000; a PII column is exported into a personal CSV; nobody can find the \"right\" version of `customers`.",
+          de_catches_it: "Self-serve isn't \"unleash everyone\" — it's \"unleash everyone *on the paved road*.\" Catalog for discovery, semantic layer for consistency, governance for safety, cost limits for runaway queries. The easy path is the safe path.",
+        },
+        {
+          scenario: "Catalog exists but is autogenerated from table schemas with no human curation. 90% of entries have no description.",
+          consequence: "Catalog feels useless; users go back to asking Sarah on Slack; catalog falls into disrepair.",
+          de_catches_it: "Make catalog ownership part of the data-product contract. Each dataset has a named owner; the owner is responsible for keeping the catalog entry useful. New datasets without descriptions don't pass CI.",
+        },
+        {
+          scenario: "Semantic layer is built but nobody uses it. Analysts continue rolling their own SQL because \"it's faster.\"",
+          consequence: "The platform's investment is wasted; the canonical definitions drift from reality; trust in the semantic layer collapses.",
+          de_catches_it: "Make the easy path the canonical path. The BI tool defaults to using the semantic layer's metrics. Adopting the layer is faster than writing SQL from scratch. Provide migration help for existing dashboards.",
+        },
+        {
+          scenario: "Domain teams own their data products, but each builds infrastructure from scratch. Six different ingestion frameworks; nine different test patterns.",
+          consequence: "Decentralization without centralization. Domain teams reinvent the wheel; quality varies wildly; the platform team can't help because there's no shared substrate.",
+          de_catches_it: "Decentralize *ownership*, centralize *the platform*. Domain teams own the data product; the platform team owns the templates, frameworks, and infrastructure they all share. Data Mesh = domain ownership + self-serve platform.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "self-serve-data",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt: "A platform team is debating: should they expose raw SQL access to the lakehouse, or invest in a curated catalog + semantic layer? The team wants \"self-serve\" but is worried about chaos.",
+      options: [
+        { id: "a", text: "Just give SQL access — power users will figure it out.", correct: false },
+        {
+          id: "b",
+          text: "Build the paved road: catalog (discovery), semantic layer (canonical definitions), governed query interface (guardrails baked in). Self-serve isn't \"unleash everyone\" — it's \"unleash everyone *on the paved road*.\" The easy path has to be the safe path, or you've just built a data swamp.",
+          correct: true,
+        },
+        { id: "c", text: "Restrict SQL access to engineers only.", correct: false },
+        { id: "d", text: "Build a BI tool from scratch.", correct: false },
+      ],
+      explanation:
+        "Self-serve without guardrails is the chaos pattern: conflicting metrics, runaway costs, leaked PII, dataset proliferation. The platform's job is to make the easy path the safe path. A catalog answers \"what exists?\" A semantic layer answers \"what does it mean?\" Governed query access answers \"can I use it safely?\" Templates answer \"how do I add to it?\" That's the paved road. The SWE analogue: Spotify's Backstage or Netflix's PaaS — they didn't give everyone raw Kubernetes; they built a curated portal where the easy thing is the right thing.",
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // breaking-changes
+  // ═══════════════════════════════════════════════════════════════════
+  {
+    concept_slug: "breaking-changes",
+    sort_order: 1,
+    type: "comparison",
+    payload: {
+      title: "Additive (free) vs. breaking (versioning event) changes",
+      left_label: "Additive — ship freely",
+      right_label: "Breaking — needs versioning + deprecation",
+      pairs: [
+        { left: "Add a new nullable column", right: "Drop a column" },
+        { left: "Add a new event type to an event stream", right: "Rename a column" },
+        { left: "Widen a numeric type (int32 → int64)", right: "Change a column's type incompatibly (string → int)" },
+        { left: "Add new enum values (consumers tolerant by default)", right: "Change a grain (one row per session → one row per page view)" },
+        { left: "Tighten a guarantee (was nullable, now not)", right: "Loosen a guarantee (was unique, now not)" },
+        { left: "Backwards-compatible by construction", right: "Requires expand-and-contract: old + new in parallel" },
+      ],
+    },
+  },
+  {
+    concept_slug: "breaking-changes",
+    sort_order: 2,
+    type: "dimensions",
+    payload: {
+      title: "The expand-and-contract pattern — data's blue-green migration",
+      intro: "The safe path for any breaking change when you have asynchronous consumers you can't synchronously coordinate. Five steps:",
+      items: [
+        {
+          name: "1. Expand (add the new alongside the old)",
+          description: "Both `revenue` and `net_revenue` are populated. Old consumers keep reading `revenue`; new consumers can opt into `net_revenue`. Nothing breaks.",
+        },
+        {
+          name: "2. Announce + document the deprecation",
+          description: "Publish the timeline. \"`revenue` will be removed on YYYY-MM-DD. Migrate to `net_revenue`. See migration guide.\" Communicate via the catalog, Slack, email — whatever consumers actually read.",
+        },
+        {
+          name: "3. Migrate consumers (one at a time, no synchronization)",
+          description: "Each consumer team migrates on their own schedule. Asynchronous by design — that's the whole point. The platform can help by listing which consumers haven't migrated yet (via query history or lineage).",
+        },
+        {
+          name: "4. Verify migration is complete",
+          description: "Use query logs / lineage to confirm zero consumers are still reading `revenue`. Until this is true, you can't proceed to step 5.",
+        },
+        {
+          name: "5. Contract (remove the old)",
+          description: "Now — and only now — drop `revenue`. The breaking change is complete. If you skipped any of the earlier steps, this is where things explode.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "breaking-changes",
+    sort_order: 3,
+    type: "failure_catalog",
+    payload: {
+      title: "Breaking-change disasters — and how each one would have been prevented",
+      items: [
+        {
+          scenario: "Producer drops a column \"because it's not used anymore.\" Three dashboards, 2 ML models, and an internal app immediately break.",
+          consequence: "P1 incident, hours of triage, lost trust between teams.",
+          de_catches_it: "Contract rejection: schema registry refuses an incompatible write. CI test: producer's pipeline fails before deploy. Expand-and-contract: column is deprecated first, removed only after all consumers migrate. Any of the three would have prevented it.",
+        },
+        {
+          scenario: "Producer changes `revenue` definition from gross to net of refunds. Schema unchanged.",
+          consequence: "Every dashboard silently reports ~3% lower numbers. Type checks pass; nothing breaks visibly. The mismatch is discovered six weeks later during quarterly close.",
+          de_catches_it: "Semantic contracts: the definition (\"revenue includes refunds\") is part of the contract; changing it is a breaking change requiring a new version. Even if not caught at deploy, observability's distribution monitoring catches the 3% shift in revenue's typical range immediately.",
+        },
+        {
+          scenario: "Producer changes the grain of an events table — was one row per session, now one row per page view.",
+          consequence: "Every aggregation downstream is off by 10-50x. Counts, sums, ratios all silently shift.",
+          de_catches_it: "Grain is a contract clause: \"one row per session.\" Changing the grain is a breaking change, period. Version the table: keep `events_v1` (session grain) and add `events_v2` (page-view grain). Consumers migrate explicitly.",
+        },
+        {
+          scenario: "Producer widens a column type from int32 to int64. Backwards-compatible. Ships freely.",
+          consequence: "Downstream pipelines that use Avro/Protobuf with int32 readers break because the schema evolution didn't account for the wire-format change.",
+          de_catches_it: "Use a schema registry with compatibility mode (BACKWARD, FORWARD, FULL). The registry knows that int32 → int64 isn't backward-compatible at the wire level for some encodings, and rejects the write. Compatibility isn't intuitive — let the tool enforce it.",
+        },
+      ],
+    },
+  },
+  {
+    concept_slug: "breaking-changes",
+    sort_order: 4,
+    type: "inline_quiz",
+    payload: {
+      prompt: "A producer needs to change `events` grain from \"one row per session\" to \"one row per page view\" — a breaking change with ~30 downstream consumers. What's the right path?",
+      options: [
+        { id: "a", text: "Push the change at midnight on a Sunday so nobody notices.", correct: false },
+        {
+          id: "b",
+          text: "Expand: ship `events_v2` with the new page-view grain alongside the existing `events` (now `events_v1`). Both populated in parallel. Announce deprecation timeline. Help consumers migrate one at a time. Once query logs confirm no one reads `events_v1`, drop it. The whole migration may take 3-6 months; that's the cost of having asynchronous consumers.",
+          correct: true,
+        },
+        { id: "c", text: "Force all 30 teams to migrate in a single coordinated release.", correct: false },
+        { id: "d", text: "Don't make the change.", correct: false },
+      ],
+      explanation:
+        "Expand-and-contract is the only safe option when your consumers are asynchronous and can't be force-migrated. Forcing 30 teams to migrate simultaneously is a coordination nightmare and creates artificial deadlines. Pushing it quietly is a recipe for a major incident. Versioning + parallel running + gradual migration is the platform discipline. The trade-off is real: a complex breaking change can take months of parallel operation before contract. That's the price of decoupled consumers, and it's worth it.",
+    },
+  },
 ];

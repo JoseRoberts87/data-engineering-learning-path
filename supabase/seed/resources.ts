@@ -533,4 +533,99 @@ export const resources: ResourceSeed[] = [
     url: "https://docs.snowflake.com/en/user-guide/cost-understanding-compute",
     resource_type: "docs",
   },
+
+  // ── Phase 7 ──────────────────────────────────────────
+  // data-contracts
+  {
+    concept_slug: "data-contracts",
+    title: "Andrew Jones — \"Driving Data Quality with Data Contracts\" (book / approach overview)",
+    url: "https://www.oreilly.com/library/view/driving-data-quality/9781837635009/",
+    resource_type: "book",
+  },
+  {
+    concept_slug: "data-contracts",
+    title: "Pact — Consumer-Driven Contract Testing (the SWE analogue applied across organizations)",
+    url: "https://docs.pact.io/",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "data-contracts",
+    title: "Confluent — Schema Registry (compatibility modes: backward / forward / full)",
+    url: "https://docs.confluent.io/platform/current/schema-registry/index.html",
+    resource_type: "docs",
+  },
+
+  // observability
+  {
+    concept_slug: "observability",
+    title: "OpenLineage — Open standard for data lineage (the OpenTelemetry of data)",
+    url: "https://openlineage.io/",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "observability",
+    title: "DataHub — Open-source metadata + lineage platform",
+    url: "https://datahubproject.io/docs/",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "observability",
+    title: "Monte Carlo — \"The Five Pillars of Data Observability\" (freshness, volume, distribution, schema, lineage)",
+    url: "https://www.montecarlodata.com/blog-what-is-data-observability/",
+    resource_type: "article",
+  },
+
+  // governance
+  {
+    concept_slug: "governance",
+    title: "Open Policy Agent (OPA) — Declarative policy-as-code",
+    url: "https://www.openpolicyagent.org/docs/latest/",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "governance",
+    title: "Snowflake — Dynamic Data Masking and Row Access Policies",
+    url: "https://docs.snowflake.com/en/user-guide/security-column-intro",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "governance",
+    title: "GDPR Right-to-Erasure — what immutable data systems actually have to solve",
+    url: "https://gdpr-info.eu/art-17-gdpr/",
+    resource_type: "article",
+  },
+
+  // self-serve-data
+  {
+    concept_slug: "self-serve-data",
+    title: "Zhamak Dehghani — \"Data Mesh Principles and Logical Architecture\" (the foundational essay)",
+    url: "https://martinfowler.com/articles/data-mesh-principles.html",
+    resource_type: "article",
+  },
+  {
+    concept_slug: "self-serve-data",
+    title: "OpenMetadata — open-source data catalog (discovery + lineage + governance in one platform)",
+    url: "https://docs.open-metadata.org/",
+    resource_type: "docs",
+  },
+  {
+    concept_slug: "self-serve-data",
+    title: "Spotify Backstage — Internal Developer Platform model (the SWE analogue to a self-serve data platform)",
+    url: "https://backstage.io/docs/overview/what-is-backstage",
+    resource_type: "docs",
+  },
+
+  // breaking-changes
+  {
+    concept_slug: "breaking-changes",
+    title: "Martin Fowler — \"Parallel Change\" (the expand-and-contract migration pattern)",
+    url: "https://martinfowler.com/bliki/ParallelChange.html",
+    resource_type: "article",
+  },
+  {
+    concept_slug: "breaking-changes",
+    title: "Apache Iceberg — Schema Evolution (rename/add/drop without rewriting historical files)",
+    url: "https://iceberg.apache.org/docs/latest/evolution/",
+    resource_type: "docs",
+  },
 ];

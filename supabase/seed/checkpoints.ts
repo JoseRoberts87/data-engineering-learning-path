@@ -1114,32 +1114,172 @@ export const questions: QuestionSeed[] = [
   // ── Phase 7 ──────────────────────────────────────────
   {
     checkpoint_slug: "checkpoint-data-platform-thinking",
-    prompt: "A producer team renames customer_id to cust_id and pushes the change. Three downstream dashboards break immediately. What was missing?",
+    prompt: "At the platform level, what is a data contract really for?",
     options: [
-      { id: "a", text: "A unit test in the producer's code.", correct: false },
+      { id: "a", text: "Documenting which columns exist in a table.", correct: false },
       {
         id: "b",
-        text: "A data contract with versioning and a deprecation window.",
+        text: "Solving *organizational coupling* — making the hidden dependency between a producer and its consumers explicit, owned, and enforced. So the producer can evolve internally without silently breaking people they've never heard of.",
         correct: true,
       },
-      { id: "c", text: "Better dashboard caching.", correct: false },
-      { id: "d", text: "Stronger typing in the warehouse.", correct: false },
+      { id: "c", text: "A way to make queries faster.", correct: false },
+      { id: "d", text: "A replacement for unit tests.", correct: false },
     ],
     explanation:
-      "A data contract formalizes the producer-consumer agreement: what columns exist, what changes are allowed, and what notice consumers get. A rename under a contract would either be rejected or trigger a coordinated migration with a deprecation period. Without a contract, every change risks silent breakage.",
+      "Schema enforcement is the mechanism. The real purpose is to solve the human problem: an app team renames a column without knowing the data team depends on it, and twelve dashboards break. A contract makes the dependency explicit, owned, and CI-enforced — the same shift-left discipline as treating an API as a deliberate product interface rather than \"exhaust someone else mops up.\"",
     sort_order: 1,
   },
   {
     checkpoint_slug: "checkpoint-data-platform-thinking",
-    prompt: "Which set is most representative of data observability signals?",
+    prompt: "What's the SWE equivalent of data-contract enforcement?",
     options: [
-      { id: "a", text: "Freshness, row counts, null rates, and lineage.", correct: true },
-      { id: "b", text: "Code coverage of the transformation SQL.", correct: false },
-      { id: "c", text: "Database CPU usage alone.", correct: false },
-      { id: "d", text: "Number of dashboards built on the data.", correct: false },
+      { id: "a", text: "Code reviews.", correct: false },
+      {
+        id: "b",
+        text: "Consumer-driven contract testing (Pact). The producer's CI runs the consumer's expectations; an incompatible change fails the build before it ships. Same machinery, applied to data instead of HTTP APIs.",
+        correct: true,
+      },
+      { id: "c", text: "Static type checking.", correct: false },
+      { id: "d", text: "Branch protection rules.", correct: false },
     ],
     explanation:
-      "Data observability covers the dataset's health: is it fresh, did the expected number of rows arrive, are values within expected distributions, and which upstream tables fed which downstream tables. It's the data analog of metrics/traces/logs in distributed systems.",
+      "Pact-style contract testing is the precise analogue: the producer can't ship a change that violates a consumer's expectations without their test failing. The contract isn't documentation — it's an executable check at the boundary. A data contract works the same way: a schema registry rejects incompatible writes, CI tests fail on breaking changes, the producer's pipeline literally can't deploy unless consumers are satisfied.",
     sort_order: 2,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-platform-thinking",
+    prompt: "A revenue dashboard shows the wrong number on Monday morning. What does a *lineage*-aware platform give you that pipeline monitoring doesn't?",
+    options: [
+      { id: "a", text: "A faster query plan.", correct: false },
+      {
+        id: "b",
+        text: "Distributed tracing for data — \"what upstream produced this number\" (root cause) and \"what downstream depends on it\" (blast radius). Column-level lineage points to the exact source fields that feed each metric, so you can trace the failure across teams in minutes instead of days.",
+        correct: true,
+      },
+      { id: "c", text: "Lower compute cost.", correct: false },
+      { id: "d", text: "Automatic data backups.", correct: false },
+    ],
+    explanation:
+      "Pipeline monitoring tells you \"the job ran successfully\" — but a successful job can produce wrong data. Lineage answers the two questions distributed tracing answers about a failed request: root cause (which upstream broke) and blast radius (which downstream is affected). Column-level lineage is the fine-grained version: not just \"this table feeds that table,\" but \"this source field feeds that metric.\" Without it, every bad number is a multi-day archaeology dig.",
+    sort_order: 3,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-platform-thinking",
+    prompt: "A team builds row-level security so an EU analyst sees only EU rows, and an SSN-masking policy so most roles see `***-**-1234`. They implement this per-pipeline as the use cases come up. What goes wrong at platform scale?",
+    options: [
+      { id: "a", text: "Nothing — per-pipeline policies are the right approach.", correct: false },
+      {
+        id: "b",
+        text: "Drift. Every pipeline reinvents the policy slightly differently; a new table forgets to apply the SSN mask; a contractor pipeline reads from a misconfigured staging table. Per-pipeline enforcement is fundamentally not auditable. The fix is *policy-as-code* with attribute-based tags — classify a column as PII once, and a central engine (OPA-style) enforces masking everywhere automatically.",
+        correct: true,
+      },
+      { id: "c", text: "Query performance degrades.", correct: false },
+      { id: "d", text: "The dashboards become read-only.", correct: false },
+    ],
+    explanation:
+      "Per-pipeline policy enforcement is the data equivalent of every microservice rolling its own auth — it works at small scale and silently rots at large scale. Policy-as-code with column tags (or OPA policies) centralizes the rule; the platform applies it uniformly. That's the same move that took application infrastructure from \"every service checks its own permissions\" to a central authorization service.",
+    sort_order: 4,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-platform-thinking",
+    prompt: "GDPR mandates that when a user requests deletion, you must erase their data \"everywhere.\" Why is this genuinely *harder* in data engineering than in application code?",
+    options: [
+      { id: "a", text: "Because data is stored in slow disks.", correct: false },
+      {
+        id: "b",
+        text: "Because the entire data ecosystem you've built is *append-only* and *replicated*: bronze, silver, gold layers, immutable Parquet files, lakehouse snapshots, dozens of consumer extracts. \"Delete this user everywhere\" runs directly against immutability and replication. There's no clean software analogue — solutions (tombstones, crypto-shredding, lineage-driven deletion) are real ongoing engineering work.",
+        correct: true,
+      },
+      { id: "c", text: "Because GDPR is poorly specified.", correct: false },
+      { id: "d", text: "Because lawyers are involved.", correct: false },
+    ],
+    explanation:
+      "This is the one problem in Phase 7 with no clean SWE analogue. Application databases let you DELETE a row trivially. The data world's entire substrate — immutability, replication, time travel, append-only logs — is *exactly the opposite* of \"erase everywhere on demand.\" Real solutions include tombstones (mark deleted, filter on read), crypto-shredding (encrypt per-user with a per-user key, then drop the key), and lineage-driven cascade deletion. None are clean; all are real engineering.",
+    sort_order: 5,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-platform-thinking",
+    prompt: "A platform team is debating: \"governance locks data down\" vs. \"self-serve opens data up.\" Which wins?",
+    options: [
+      { id: "a", text: "Governance — safety first.", correct: false },
+      { id: "b", text: "Self-serve — speed first.", correct: false },
+      {
+        id: "c",
+        text: "Neither, alone. The resolution is *governed self-serve*: make access easy *within* automatically enforced guardrails. The platform makes the easy path the safe path. That's exactly how good SWE platform teams enable developers to ship fast *because* the paved road bakes in security and compliance.",
+        correct: true,
+      },
+      { id: "d", text: "Outsource both to a vendor.", correct: false },
+    ],
+    explanation:
+      "Governance and self-serve are in real tension, but treating them as an either/or kills both. The platform answer is to embed the guardrails *in* the paved road: a self-serve query interface that automatically enforces RBAC and PII masking; a catalog that surfaces only datasets you're authorized to see. Data Mesh calls this *federated governance*: central policy, local ownership. The paved road is the safe road — that's the whole point.",
+    sort_order: 6,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-platform-thinking",
+    prompt: "What does a self-serve data platform actually provide that turns a \"ticket-queue data team\" into a platform team?",
+    options: [
+      { id: "a", text: "More Spark clusters.", correct: false },
+      {
+        id: "b",
+        text: "A data catalog for discovery (DataHub/Amundsen/OpenMetadata), a semantic/metrics layer so consumers don't each reinvent \"revenue,\" templates so domain teams can ship a new dataset on the paved road, and governed query access where the controls are enforced automatically. Discoverability + safe defaults + reusable patterns.",
+        correct: true,
+      },
+      { id: "c", text: "A faster SQL editor.", correct: false },
+      { id: "d", text: "Bigger BI dashboards.", correct: false },
+    ],
+    explanation:
+      "Self-serve removes the human from the common path. Discovery (\"what exists, what does it mean, who owns it?\") happens in a catalog, not a Slack channel. Common metrics live in a semantic layer, not 17 dashboards with subtly different definitions. New datasets follow templates, not bespoke pipelines. Safe-by-default means a junior analyst can't accidentally leak PII or run a $1000 query. The data team's job shifts from doing the work to making the work easy and safe for everyone else.",
+    sort_order: 7,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-platform-thinking",
+    prompt: "A producer needs to rename `revenue` → `net_revenue` (a breaking change). 40 downstream consumers depend on the original column. What's the safest path?",
+    options: [
+      { id: "a", text: "Rename and notify consumers via email.", correct: false },
+      {
+        id: "b",
+        text: "Expand-and-contract: (1) add `net_revenue` alongside `revenue`, both populated; (2) announce deprecation timeline; (3) migrate consumers one at a time; (4) once all consumers are off `revenue`, drop the old column. The data version of a blue-green migration.",
+        correct: true,
+      },
+      { id: "c", text: "Drop revenue and document the change in the README.", correct: false },
+      { id: "d", text: "Force all consumers to upgrade in a coordinated release.", correct: false },
+    ],
+    explanation:
+      "Expand-and-contract (parallel-change) is the safe-by-default pattern for breaking changes in a system where consumers are decoupled and asynchronous. The producer can't force 40 teams to upgrade simultaneously, so it makes the new field available, gives consumers time to migrate, and only then removes the old field. This is the data version of how you'd evolve a public REST API — you don't break v1 the day you ship v2.",
+    sort_order: 8,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-platform-thinking",
+    prompt: "Why is a *semantic* break (a change that passes every type check but redefines what `revenue` means) more dangerous than a *structural* break (a renamed column)?",
+    options: [
+      { id: "a", text: "It's easier to detect.", correct: false },
+      {
+        id: "b",
+        text: "Structural breaks fail loudly — pipelines error, dashboards blank, alerts fire. Semantic breaks pass every type check, run all green, and quietly produce different numbers. Twelve dashboards keep working but now mean something subtly different, and nobody knows when it changed. The platform answer: contracts define semantic promises, observability detects when they're violated, and breaking-change discipline manages how they evolve.",
+        correct: true,
+      },
+      { id: "c", text: "Type checkers don't exist in data systems.", correct: false },
+      { id: "d", text: "Semantic breaks always cause data loss.", correct: false },
+    ],
+    explanation:
+      "The structural break (rename) is loud — it fails fast and obvious. The semantic break (\"`revenue` used to be gross, now it's net of refunds\") is silent — every consumer keeps working, but their numbers shift. By the time someone notices, the wrong numbers are in the board deck, the comp model, and the quarterly report. Type checks can't catch this — only contracts that capture *semantics* (e.g., \"revenue is net of refunds\") plus observability that watches distributions plus a deprecation discipline that forces semantic changes through a versioning gate.",
+    sort_order: 9,
+  },
+  {
+    checkpoint_slug: "checkpoint-data-platform-thinking",
+    prompt: "Zoom out: what unifies the five Phase 7 concepts into one idea?",
+    options: [
+      { id: "a", text: "Cost optimization.", correct: false },
+      {
+        id: "b",
+        text: "*Data as a product, owned by domains, on a self-serve platform, under federated governance* — i.e., Data Mesh. Contracts are the promises between teams. Observability lets everyone see whether promises are kept. Governance keeps access safe. Self-serve is the paved road. Breaking-change discipline manages how promises evolve. The bottleneck moves from machine to organization; the solutions move from algorithms to interfaces, policies, and products.",
+        correct: true,
+      },
+      { id: "c", text: "Backup and disaster recovery.", correct: false },
+      { id: "d", text: "Real-time streaming.", correct: false },
+    ],
+    explanation:
+      "Phase 7 is the capstone: every earlier concept gets industrialized. Phase 1's data-as-product reframed at platform scale. Phase 2's schema-as-contracts enforced in CI. Phase 3's data-quality-as-tests scaled to platform observability. Phase 4's SLAs as asset-level freshness policies. Phase 6's lakehouse time-travel as substrate for governance. The destination has a name — *Data Mesh* — and the full 7-phase arc is the same journey software engineering took: from \"write good code\" to \"build the platform so the whole org writes good code.\"",
+    sort_order: 10,
   },
 ];
