@@ -58,6 +58,22 @@ export default async function DashboardPage() {
         </Link>
       )}
 
+      <Link
+        href="/connections"
+        className="mt-4 block rounded-lg border border-foreground/15 p-5 transition hover:border-foreground/40 hover:bg-foreground/[0.02]"
+      >
+        <div className="text-xs font-mono uppercase tracking-wider text-foreground/50">
+          Concept map
+        </div>
+        <div className="mt-1 text-base font-semibold">
+          See how the concepts connect across phases
+        </div>
+        <div className="mt-1 text-sm text-foreground/60">
+          Interactive graph · filter by recurring theme · click a node to
+          drill in
+        </div>
+      </Link>
+
       <section className="mt-8 grid grid-cols-3 gap-3">
         <div className="rounded-md border border-foreground/10 p-4 text-center">
           <div className="text-2xl font-semibold tabular-nums">

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getPhasesWithProgress } from "@/features/path/queries";
 import { PhaseCard } from "@/features/path/PhaseCard";
@@ -19,6 +20,22 @@ export default async function PathPage() {
           <PhaseCard key={phase.id} phase={phase} />
         ))}
       </div>
+
+      <Link
+        href="/connections"
+        className="mt-6 block rounded-lg border border-foreground/15 p-5 transition hover:border-foreground/40 hover:bg-foreground/[0.02]"
+      >
+        <div className="text-xs font-mono uppercase tracking-wider text-foreground/50">
+          Concept map
+        </div>
+        <div className="mt-1 text-base font-semibold">
+          See how concepts connect across phases
+        </div>
+        <div className="mt-1 text-sm text-foreground/60">
+          The same ideas (idempotency, time, the log abstraction, cost-as-bytes)
+          recur across phases. Open the interactive graph to trace the threads.
+        </div>
+      </Link>
     </div>
   );
 }

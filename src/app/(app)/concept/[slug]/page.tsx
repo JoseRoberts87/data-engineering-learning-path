@@ -10,6 +10,7 @@ import { TutorPanel } from "@/features/tutor/TutorPanel";
 import { getPriorTutorMessages } from "@/features/tutor/queries";
 import { Markdown } from "@/features/concept/sections/Markdown";
 import { renderSection } from "@/features/concept/sections";
+import { ConceptConnections } from "@/features/connections/ConceptConnections";
 
 export default async function ConceptPage({
   params,
@@ -78,6 +79,8 @@ export default async function ConceptPage({
           </ul>
         </section>
       )}
+
+      <ConceptConnections supabase={supabase} conceptSlug={concept.slug} />
 
       <NotesArea
         initialBody={concept.note}

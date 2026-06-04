@@ -32,6 +32,9 @@ export default async function AppLayout({
             <Link href="/capstone" className="hover:text-foreground">
               Capstone
             </Link>
+            <Link href="/connections" className="hover:text-foreground">
+              Connections
+            </Link>
             <span className="text-foreground/40">·</span>
             <span className="text-foreground/50">{user.email}</span>
             <ThemeToggle />
