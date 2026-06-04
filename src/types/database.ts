@@ -154,6 +154,97 @@ export type Database = {
           },
         ]
       }
+      code_challenges: {
+        Row: {
+          concept_id: string
+          created_at: string
+          expected_result: Json
+          fixture_sql: string
+          grading_notes: string | null
+          hints: Json | null
+          id: string
+          prompt: string
+          sample_solution: string
+          starter_sql: string
+        }
+        Insert: {
+          concept_id: string
+          created_at?: string
+          expected_result: Json
+          fixture_sql: string
+          grading_notes?: string | null
+          hints?: Json | null
+          id?: string
+          prompt: string
+          sample_solution: string
+          starter_sql: string
+        }
+        Update: {
+          concept_id?: string
+          created_at?: string
+          expected_result?: Json
+          fixture_sql?: string
+          grading_notes?: string | null
+          hints?: Json | null
+          id?: string
+          prompt?: string
+          sample_solution?: string
+          starter_sql?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "code_challenges_concept_id_fkey"
+            columns: ["concept_id"]
+            isOneToOne: true
+            referencedRelation: "concepts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      concept_explanations: {
+        Row: {
+          attempt_count: number
+          concept_id: string
+          created_at: string
+          explanation: string
+          feedback: Json
+          id: string
+          score: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attempt_count?: number
+          concept_id: string
+          created_at?: string
+          explanation: string
+          feedback: Json
+          id?: string
+          score: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attempt_count?: number
+          concept_id?: string
+          created_at?: string
+          explanation?: string
+          feedback?: Json
+          id?: string
+          score?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "concept_explanations_concept_id_fkey"
+            columns: ["concept_id"]
+            isOneToOne: false
+            referencedRelation: "concepts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       concept_sections: {
         Row: {
           concept_id: string
@@ -412,6 +503,63 @@ export type Database = {
             columns: ["step_id"]
             isOneToOne: false
             referencedRelation: "capstone_steps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_challenge_submissions: {
+        Row: {
+          ai_feedback: Json
+          ai_score: number
+          attempt_count: number
+          challenge_id: string
+          code: string
+          concept_id: string
+          created_at: string
+          id: string
+          passed_tests: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          ai_feedback: Json
+          ai_score: number
+          attempt_count?: number
+          challenge_id: string
+          code: string
+          concept_id: string
+          created_at?: string
+          id?: string
+          passed_tests: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          ai_feedback?: Json
+          ai_score?: number
+          attempt_count?: number
+          challenge_id?: string
+          code?: string
+          concept_id?: string
+          created_at?: string
+          id?: string
+          passed_tests?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_challenge_submissions_challenge_id_fkey"
+            columns: ["challenge_id"]
+            isOneToOne: false
+            referencedRelation: "code_challenges"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_challenge_submissions_concept_id_fkey"
+            columns: ["concept_id"]
+            isOneToOne: false
+            referencedRelation: "concepts"
             referencedColumns: ["id"]
           },
         ]

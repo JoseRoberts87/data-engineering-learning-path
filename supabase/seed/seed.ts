@@ -4,6 +4,7 @@ import { checkpoints, questions } from "./checkpoints";
 import { capstoneSteps } from "./capstone";
 import { resources } from "./resources";
 import { sections } from "./sections";
+import { challenges } from "./challenges";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -164,6 +165,45 @@ async function replaceQuestions(checkpointIds: Map<string, string>) {
   console.log(`  questions: ${data.length} inserted (after delete-all)`);
 }
 
+async function replaceChallenges(conceptIds: Map<string, string>) {
+  // Wipe + reinsert. user_challenge_submissions will cascade if challenges
+  // are dropped via the FK, but we expect to only edit content here, not
+  // remove challenges users have submitted against in production. If you
+  // change a challenge after users have submitted, their submissions stay
+  // (concept_id is also denormalized on submissions for this reason).
+  const { error: delErr } = await supabase
+    .from("code_challenges")
+    .delete()
+    .gte("created_at", "1970-01-01");
+  if (delErr) throw delErr;
+
+  const rows = challenges.map((c) => {
+    const concept_id = conceptIds.get(c.concept_slug);
+    if (!concept_id)
+      throw new Error(`Unknown concept_slug for challenge: ${c.concept_slug}`);
+    return {
+      concept_id,
+      prompt: c.prompt,
+      starter_sql: c.starter_sql,
+      fixture_sql: c.fixture_sql,
+      expected_result: c.expected_result,
+      sample_solution: c.sample_solution,
+      grading_notes: c.grading_notes,
+      hints: c.hints,
+    };
+  });
+  if (rows.length === 0) {
+    console.log("  challenges: 0 inserted");
+    return;
+  }
+  const { data, error } = await supabase
+    .from("code_challenges")
+    .insert(rows)
+    .select("id");
+  if (error) throw error;
+  console.log(`  challenges: ${data.length} inserted (after delete-all)`);
+}
+
 async function upsertCapstoneSteps(phaseIds: Map<string, string>) {
   const rows = capstoneSteps.map((s) => ({
     slug: s.slug,
@@ -189,6 +229,7 @@ async function main() {
   await replaceQuestions(checkpointIds);
   await replaceResources(conceptIds);
   await replaceSections(conceptIds);
+  await replaceChallenges(conceptIds);
   await upsertCapstoneSteps(phaseIds);
   console.log("Done.");
 }

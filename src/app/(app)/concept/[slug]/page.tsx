@@ -2,8 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getConceptWithContext } from "@/features/concept/queries";
-import { MarkProgress } from "@/features/progress/MarkProgress";
-import { setConceptProgress } from "@/features/progress/actions";
 import { NotesArea } from "@/features/notes/NotesArea";
 import { setConceptNote } from "@/features/notes/actions";
 import { TutorPanel } from "@/features/tutor/TutorPanel";
@@ -11,6 +9,15 @@ import { getPriorTutorMessages } from "@/features/tutor/queries";
 import { Markdown } from "@/features/concept/sections/Markdown";
 import { renderSection } from "@/features/concept/sections";
 import { ConceptConnections } from "@/features/connections/ConceptConnections";
+import { ExplanationEvaluator } from "@/features/explanation/ExplanationEvaluator";
+import { submitExplanation } from "@/features/explanation/actions";
+import { getExplanationRecord } from "@/features/explanation/queries";
+import { CodeChallenge } from "@/features/challenge/CodeChallenge";
+import { submitChallenge } from "@/features/challenge/actions";
+import {
+  getChallengeForConcept,
+  getChallengeSubmission,
+} from "@/features/challenge/queries";
 
 export default async function ConceptPage({
   params,
@@ -21,7 +28,13 @@ export default async function ConceptPage({
   const supabase = await createClient();
   const concept = await getConceptWithContext(supabase, slug);
   if (!concept) notFound();
-  const tutorHistory = await getPriorTutorMessages(supabase, concept.id);
+  const [tutorHistory, explanationRecord, challenge, challengeSubmission] =
+    await Promise.all([
+      getPriorTutorMessages(supabase, concept.id),
+      getExplanationRecord(supabase, concept.id),
+      getChallengeForConcept(supabase, concept.id),
+      getChallengeSubmission(supabase, concept.id),
+    ]);
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
@@ -34,10 +47,11 @@ export default async function ConceptPage({
 
       <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
         <h1 className="text-2xl font-semibold tracking-tight">{concept.title}</h1>
-        <MarkProgress
-          initialStatus={concept.status}
-          onChange={setConceptProgress.bind(null, concept.id)}
-        />
+        {concept.status === "completed" ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-700/40 bg-emerald-700/10 px-3 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+            <span>✓</span> Complete
+          </span>
+        ) : null}
       </div>
 
       <section className="mt-6">
@@ -81,6 +95,20 @@ export default async function ConceptPage({
       )}
 
       <ConceptConnections supabase={supabase} conceptSlug={concept.slug} />
+
+      {challenge ? (
+        <CodeChallenge
+          challenge={challenge}
+          initialSubmission={challengeSubmission}
+          onSubmit={submitChallenge}
+        />
+      ) : null}
+
+      <ExplanationEvaluator
+        conceptId={concept.id}
+        initialRecord={explanationRecord}
+        onSubmit={submitExplanation}
+      />
 
       <NotesArea
         initialBody={concept.note}
