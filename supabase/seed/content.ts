@@ -13,6 +13,7 @@ export type ConceptSeed = {
   description: string;
   swe_analogy: string;
   sort_order: number;
+  estimated_minutes: number;
 };
 
 export const phases: PhaseSeed[] = [
@@ -78,6 +79,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Like an API where the response shape and freshness *are* the contract — except the consumer doesn't get a 500 when the number is wrong. The failure is silent and erodes trust permanently. Nobody pages oncall when revenue is off by 3%; they just stop trusting the dashboard.",
     sort_order: 1,
+    estimated_minutes: 12,
   },
   {
     slug: "batch-vs-real-time",
@@ -88,6 +90,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Sync vs async at the architectural level. Sync/async picks how you wait *within one execution*; batch vs streaming picks how data moves through the *entire system* — and what complexity and cost tax you take on in exchange for lower latency.",
     sort_order: 2,
+    estimated_minutes: 12,
   },
   {
     slug: "understanding-data-consumers",
@@ -98,6 +101,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Like designing a public API — except your \"API\" is a data warehouse, consumers reach for tables instead of endpoints, and there's no compiler to catch their mistakes against your contract. They explore rather than integrate.",
     sort_order: 3,
+    estimated_minutes: 12,
   },
   {
     slug: "schemas-as-contracts",
@@ -108,6 +112,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Versioned REST APIs or protobuf definitions, but unlike code the data persists indefinitely — the schema has to keep validating against records produced months ago by older versions of the producer. Protobuf's \"never reuse a field number\" rule exists for exactly this reason.",
     sort_order: 4,
+    estimated_minutes: 15,
   },
   {
     slug: "failures-are-backlogs",
@@ -118,6 +123,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Closer to a build dependency tree (Make, Bazel, npm task graphs) than to handling one HTTP request at a time. The data twist: the same DAG re-executes for each time partition, and runs can be backfilled — so failure recovery is multi-dimensional.",
     sort_order: 5,
+    estimated_minutes: 12,
   },
   {
     slug: "idempotency-as-mindset",
@@ -128,6 +134,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "The same property you want from a PUT or DELETE endpoint, but elevated from an HTTP-method choice to the foundational design axis behind every transformation you write.",
     sort_order: 6,
+    estimated_minutes: 15,
   },
   {
     slug: "statistical-testing",
@@ -138,6 +145,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Property-based testing (QuickCheck, fast-check) plus production observability and alerting, merged into one discipline. You assert on shape and distribution, then watch in prod.",
     sort_order: 7,
+    estimated_minutes: 18,
   },
   {
     slug: "time-as-engineering-problem",
@@ -148,6 +156,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Event sourcing applied to your whole dataset, but you also have to keep three clocks straight at once instead of pretending the network is ordered. Closest SWE pain point: clock skew in distributed tracing.",
     sort_order: 8,
+    estimated_minutes: 25,
   },
   {
     slug: "scale-and-cost-as-design-axes",
@@ -158,6 +167,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Big-O analysis, but with dollars and minutes as the cost units, not just complexity class. A correct-but-naive analytics query is the data equivalent of an O(n²) algorithm that also runs up your AWS bill.",
     sort_order: 9,
+    estimated_minutes: 12,
   },
 
   // Phase 2
@@ -170,6 +180,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "DRY is a write-time virtue. In code you extract a shared module so a change happens in one place. In analytics the data is immutable history — you often *want* the city frozen as it was at order time, not silently changed when the customer moves. Denormalization aligns with that: redundancy is safe because nothing's being updated.",
     sort_order: 1,
+    estimated_minutes: 25,
   },
   {
     slug: "dimensional-modeling",
@@ -180,6 +191,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Facts are application logs — high-volume, timestamped events. Dimensions are the metadata about your domain that gives those logs meaning. A *conformed dimension* — \"customer\" defined once and reused across many fact tables — is the interface-defined-once-and-reused principle applied to shared reference data.",
     sort_order: 2,
+    estimated_minutes: 25,
   },
   {
     slug: "grain-is-everything",
@@ -190,6 +202,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "The unit of analysis is the type signature of the table. \"This function takes a customer and returns a list of recommendations\" is a clearer contract than \"this function takes some data and returns some other data\" — and the same is true of a fact table. Get the grain explicit and downstream queries write themselves; leave it ambiguous and every join is a guess.",
     sort_order: 3,
+    estimated_minutes: 25,
   },
   {
     slug: "slowly-changing-dimensions",
@@ -200,6 +213,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Git, with the mapping made exact: Type 1 is a force-push (history overwritten, no audit trail). Type 2 is committing — old row stays expired, new version inserted. Surrogate key = commit hash. `valid_from` / `valid_to` = commit timestamps. `is_current` = HEAD. Type 2 is how analytical databases achieve point-in-time correctness.",
     sort_order: 4,
+    estimated_minutes: 25,
   },
   {
     slug: "oltp-vs-olap",
@@ -210,6 +224,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Array-of-structs vs struct-of-arrays. OLTP is AoS — optimal for *get-this-one-customer-record*. OLAP is SoA — optimal for *sum-this-column-across-a-billion-records*. Any SWE who's restructured a hot loop from AoS to SoA for cache locality and SIMD already understands why columnar wins for bulk math.",
     sort_order: 5,
+    estimated_minutes: 15,
   },
   {
     slug: "medallion-architecture",
@@ -220,6 +235,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "The layered architecture an SWE already knows. Bronze is the raw input/adapter layer (whatever the source threw at you, captured untouched). Silver is the domain/business-logic layer (cleansed canonical models). Gold is the presentation layer (the APIs analysts and dashboards consume). Same payoff: isolated blast radius, explicit contracts, full reprocessability.",
     sort_order: 6,
+    estimated_minutes: 25,
   },
   {
     slug: "data-vault",
@@ -230,6 +246,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Hubs are aggregate roots — stable entity identities. Links are association tables. Satellites are versioned, append-only attribute bags. The whole thing has an event-sourcing character: every change to a descriptive attribute is a new row in a satellite, never an update. The cost is more upfront complexity; the payoff is that source-system changes don't blow up the model.",
     sort_order: 7,
+    estimated_minutes: 18,
   },
 
   // Phase 3
@@ -242,6 +259,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Data gravity. Rather than hauling data out to where your transformation code lives, you move the code to where the data already sits and run it on the elastic engine that's right there. Same instinct as a stored procedure for warehouse-native work vs an external service for procedural complexity.",
     sort_order: 1,
+    estimated_minutes: 25,
   },
   {
     slug: "idempotency",
@@ -252,6 +270,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "PUT, not POST. A PUT produces the same end state regardless of how many times you call it; a naive POST that appends creates a duplicate each time. \"Exactly-once\" delivery is mostly a myth — what you actually build is **at-least-once delivery + idempotent writes = effectively once**. Same mindset as Terraform or Kubernetes: stop writing imperative \"append this event\" scripts; declare a desired end state and let the reconciling write converge to it.",
     sort_order: 2,
+    estimated_minutes: 25,
   },
   {
     slug: "incremental-vs-full-loads",
@@ -262,6 +281,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "`git pull` vs `git clone`. Incremental is git pull fetching only new commits since a known ref; full load is a fresh clone. The analogy also exposes the danger: a diff is only correct if you have a correct notion of \"since when\" — and a watermark on `updated_at` doesn't catch deletes or late updates whose timestamp slipped behind your last run.",
     sort_order: 3,
+    estimated_minutes: 25,
   },
   {
     slug: "change-data-capture",
@@ -272,6 +292,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Event sourcing applied to a database that wasn't designed for it. Instead of polling for state, you subscribe to the stream of state-change events the database is already producing internally for its own replication. The warehouse becomes a read-replica that can rewrite history.",
     sort_order: 4,
+    estimated_minutes: 25,
   },
   {
     slug: "data-quality-as-tests",
@@ -282,6 +303,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Property-based testing (QuickCheck, fast-check) merged with production observability. You assert on the *shape* of the data — not specific values — then watch the assertions every run. The DLQ pattern is the same one you'd use for a Kafka consumer: park the bad messages, ack the rest, alert on the queue depth.",
     sort_order: 5,
+    estimated_minutes: 25,
   },
   {
     slug: "transformation-layering",
@@ -292,6 +314,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "**SQL vs code**: same judgment as SQL-vs-hand-rolled or config-vs-code. Prefer declarative when the work fits; drop to imperative when you need control. **Staging → intermediate → mart**: the **adapter pattern + dependency inversion** applied to data. Push volatile, source-specific code out to the edges; keep stable business logic in the core. The transformation DAG of small testable nodes (rather than one monolithic script) is also what lets the orchestrator parallelize work and rebuild any subtree on demand.",
     sort_order: 6,
+    estimated_minutes: 25,
   },
 
   // Phase 4
@@ -304,6 +327,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "A build dependency tree with a time axis. Bazel/Make + cron + incident-response, fused into one system. The asset-centric model is the same idea as a build system that infers dependencies from `#include` or `import` statements rather than making you draw them by hand.",
     sort_order: 1,
+    estimated_minutes: 15,
   },
   {
     slug: "dependency-management",
@@ -314,6 +338,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Same topological sort a package manager uses. The novel parts: the time axis (dependencies are per-partition, not just per-task), and sensors as a first-class scheduling primitive — the equivalent of waiting for an external service health check before starting your own work, elevated to part of the dependency graph.",
     sort_order: 2,
+    estimated_minutes: 15,
   },
   {
     slug: "backfilling",
@@ -324,6 +349,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Replaying an event log against corrected code. Or: re-running a build for an old commit hash. The transform must be a pure function of its inputs — using `now()` inside a transform is the data equivalent of `Date.now()` in a unit test: a bug waiting to fire on the next backfill.",
     sort_order: 3,
+    estimated_minutes: 25,
   },
   {
     slug: "failure-modes",
@@ -334,6 +360,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "The same resilience toolkit a senior backend engineer reaches for: retries with exponential backoff, DLQ from messaging, circuit breakers, bulkheads (isolation), graceful degradation (serve last-known-good), timeouts. The new wrinkle: data failures can be *silent* — a green pipeline that shipped bad numbers needs different alerting than a service returning 500.",
     sort_order: 4,
+    estimated_minutes: 15,
   },
   {
     slug: "sla-for-data",
@@ -344,6 +371,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "SRE's SLI/SLO/SLA model applied to information. The key shift: availability ≠ correctness. A green pipeline serving stale data is the data equivalent of a service that returns 200 OK with the wrong body. Asset-level freshness policies are the same idea as SLOs on user-facing endpoints rather than on internal service uptime.",
     sort_order: 5,
+    estimated_minutes: 25,
   },
 
   // Phase 5
@@ -356,6 +384,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Git, applied to data: append-only history that each consumer reads at their own pace via a commit pointer (offset). Or: a Unix pipe that never closes, that any number of `tail`-readers can attach to. The 'consume-once-and-delete' queue is the model you're upgrading from; the log is the model that makes replay possible.",
     sort_order: 1,
+    estimated_minutes: 15,
   },
   {
     slug: "stream-processing",
@@ -366,6 +395,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Reactive programming, or Unix pipes that never close — a dataflow topology that events flow through continuously, not a script you invoke. The internal operator DAG here is different from the orchestration DAG of Phase 4: orchestration schedules whole jobs on a daily clock; a streaming topology is a *single, always-on* job whose operators form a graph through which data flows in microseconds.",
     sort_order: 2,
+    estimated_minutes: 18,
   },
   {
     slug: "windowing",
@@ -376,6 +406,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Tumbling = fixed-bucket rate limiter. Sliding = rolling average / leaky-bucket. Session = the user-activity-with-30-min-idle-timeout pattern. The streaming twist: in batch you'd just `GROUP BY HOUR(event_time)` over a bounded dataset; in streaming you also have to *decide when each window is done*, because the data never ends.",
     sort_order: 3,
+    estimated_minutes: 25,
   },
   {
     slug: "time-and-ordering",
@@ -386,6 +417,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Distributed tracing's clock-skew problem, but for aggregations. The watermark is the streaming equivalent of a tracing system declaring \"all spans for this trace are now in\" with some configurable tolerance — and you live with the same fundamental trade-off: real-time freshness vs catching the stragglers.",
     sort_order: 4,
+    estimated_minutes: 25,
   },
   {
     slug: "delivery-semantics",
@@ -396,6 +428,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "The same trade-off as distributed transactions. Exactly-once costs coordination overhead and latency; many teams choose at-least-once + idempotent consumers as the cheaper, \"good enough\" path — the streaming version of preferring idempotent REST + retries over a slow two-phase commit.",
     sort_order: 5,
+    estimated_minutes: 25,
   },
   {
     slug: "state-management-in-streams",
@@ -406,6 +439,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "A long-running stateful service or an actor holding per-entity state, except the framework hands you durability and partitioning for free. State is partitioned by key just like the log, so each worker owns a slice of keys and their state locally — same stateless-is-easy, stateful-is-hard dichotomy as distributed systems generally.",
     sort_order: 6,
+    estimated_minutes: 18,
   },
 
   // Phase 6
@@ -418,6 +452,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "The **struct-of-arrays vs. array-of-structs** trade-off you'd hit writing high-performance systems code, but applied at the file-format level. Compression-as-speed is the same logic as gzipping an HTTP payload: I/O is the bottleneck, CPU is cheap. And the embedded min/max stats are an inline index — the file carries its own \"please skip me\" hints.",
     sort_order: 1,
+    estimated_minutes: 15,
   },
   {
     slug: "partitioning-and-clustering",
@@ -428,6 +463,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Closer to **indexing** than to sharding. You're not balancing write load across nodes; you're giving the query planner enough information to prune scan ranges. Z-ordering is multi-column B-tree intuition: \"I want the planner to skip both by `date` AND by `customer_id`.\" The small-files trap is the same as creating one file per user in a filesystem — directory metadata overhead eats your savings.",
     sort_order: 2,
+    estimated_minutes: 15,
   },
   {
     slug: "distributed-compute-and-shuffle",
@@ -438,6 +474,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "Network < memory < CPU in cost, by orders of magnitude — same as **cache locality**, but at cluster scale. The shuffle is a remote-service call; map/filter is a local lookup. Skew is a hot key in a sharded service: one shard absorbs all the traffic and everything stalls behind it. And storage/compute separation is just the same logical/physical decoupling you'd apply when separating a stateless service from its database: you can scale each independently and run multiple instances of the consumer against one source of truth.",
     sort_order: 3,
+    estimated_minutes: 18,
   },
   {
     slug: "data-lake-warehouse-lakehouse",
@@ -448,6 +485,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "The SWE bridge is direct: a lakehouse table format is **git applied to a directory of Parquet files** — a write-ahead log and a content-addressed object model giving you transactions and versioning over what is otherwise a dumb filesystem. Lake-vs-warehouse maps to the duck-typed-JSON-blob vs. typed-API distinction: lakes ask \"what data do we *have*?\" — warehouses ask \"what data can we *trust*?\".",
     sort_order: 4,
+    estimated_minutes: 18,
   },
   {
     slug: "cost-as-performance",
@@ -458,6 +496,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "It's **Big-O thinking where the profiler's output is denominated in dollars**. At scale, this kind of optimization is rarely premature — you can read your worst-performing queries straight off the bill. Materialization is caching; denormalization is precomputation; partition pruning is the database equivalent of avoiding a full table scan that you'd never tolerate in an OLTP API. The same instincts; the units are different.",
     sort_order: 5,
+    estimated_minutes: 25,
   },
 
   // Phase 7
@@ -470,6 +509,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "A published API governed by **consumer-driven contract testing (Pact)**: the producer literally cannot ship a change that violates a consumer's expectations without the test failing — the same way you can't merge a breaking API change past its contract suite. Phase 2's schema-as-contracts industrialized: instead of a convention between two developers, it's a CI-enforced agreement between two organizations.",
     sort_order: 1,
+    estimated_minutes: 25,
   },
   {
     slug: "observability",
@@ -480,6 +520,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "The clean mapping is direct: software's metrics, logs, and traces become, in data, **quality-metrics, pipeline-logs, and lineage-traces** — *Datadog for data*. Phase 4's SLA-for-data extended platform-wide: instead of one team monitoring one job's freshness, the platform watches every asset's freshness and shows it on the asset's catalog page.",
     sort_order: 2,
+    estimated_minutes: 18,
   },
   {
     slug: "governance",
@@ -490,6 +531,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "**RBAC + OPA + audit logs**, but with data as the resource. Policy-as-code is the application-infra move (declarative, version-controlled, CI-tested) applied to data masking and access. The genuinely-new piece — GDPR deletion against an immutable, replicated substrate — has no good code analogue; it's where the data world creates its own discipline.",
     sort_order: 3,
+    estimated_minutes: 25,
   },
   {
     slug: "self-serve-data",
@@ -500,6 +542,7 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "An **internal developer platform (IDP)** — Backstage, Spotify's golden-paths model — but the resources are datasets, the catalog is a *data* catalog, the SDK is SQL/dbt/notebooks, and the customers are analysts and ML engineers. The same product discipline: time-to-first-success matters, discoverability matters, the easy path must be the safe path.",
     sort_order: 4,
+    estimated_minutes: 15,
   },
   {
     slug: "breaking-changes",
@@ -510,5 +553,6 @@ export const concepts: ConceptSeed[] = [
     swe_analogy:
       "**Expand-and-contract** / parallel-change is data's blue-green migration. **Semantic versioning** with deprecation windows is the same discipline as evolving a public library API. The semantic-break problem (passes type check, redefines meaning) is the data analogue of an API that keeps the same signature but changes the units — a foot-pound-vs-newton-meter incident waiting to happen.",
     sort_order: 5,
+    estimated_minutes: 25,
   },
 ];

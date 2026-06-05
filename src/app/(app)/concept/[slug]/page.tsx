@@ -18,6 +18,7 @@ import {
   getChallengeForConcept,
   getChallengeSubmission,
 } from "@/features/challenge/queries";
+import { formatMinutes } from "@/lib/format";
 
 export default async function ConceptPage({
   params,
@@ -46,7 +47,12 @@ export default async function ConceptPage({
       </Link>
 
       <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">{concept.title}</h1>
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight">{concept.title}</h1>
+          <div className="mt-1 text-xs tabular-nums text-foreground/50">
+            {formatMinutes(concept.estimated_minutes)}
+          </div>
+        </div>
         {concept.status === "completed" ? (
           <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-700/40 bg-emerald-700/10 px-3 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
             <span>✓</span> Complete

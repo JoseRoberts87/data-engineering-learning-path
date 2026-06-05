@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { formatMinutes } from "@/lib/format";
 import type { PhaseWithProgress } from "./queries";
 
 export function PhaseCard({ phase }: { phase: PhaseWithProgress }) {
@@ -28,6 +29,9 @@ export function PhaseCard({ phase }: { phase: PhaseWithProgress }) {
             {phase.completed} / {phase.total}
           </div>
           <div className="text-xs text-foreground/50">complete</div>
+          <div className="mt-1 text-xs tabular-nums text-foreground/50">
+            {formatMinutes(phase.estimatedMinutes)}
+          </div>
         </div>
       </div>
       <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-foreground/10">

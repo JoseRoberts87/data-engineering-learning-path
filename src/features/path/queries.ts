@@ -9,6 +9,7 @@ export type PhaseWithProgress = {
   tagline: string | null;
   total: number;
   completed: number;
+  estimatedMinutes: number;
 };
 
 export async function getPhasesWithProgress(
@@ -16,7 +17,9 @@ export async function getPhasesWithProgress(
 ): Promise<PhaseWithProgress[]> {
   const { data: phases, error } = await supabase
     .from("phases")
-    .select("id, slug, number, title, tagline, concepts(id)")
+    .select(
+      "id, slug, number, title, tagline, concepts(id, estimated_minutes)",
+    )
     .order("sort_order");
   if (error) throw error;
 
@@ -34,5 +37,9 @@ export async function getPhasesWithProgress(
     tagline: p.tagline,
     total: p.concepts.length,
     completed: p.concepts.filter((c) => completed.has(c.id)).length,
+    estimatedMinutes: p.concepts.reduce(
+      (sum, c) => sum + (c.estimated_minutes ?? 0),
+      0,
+    ),
   }));
 }

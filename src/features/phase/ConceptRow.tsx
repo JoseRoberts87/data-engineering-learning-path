@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { formatMinutes } from "@/lib/format";
 import type { PhaseConcept } from "./queries";
 
 const statusMark: Record<PhaseConcept["status"], string> = {
@@ -27,7 +28,12 @@ export function ConceptRow({ concept }: { concept: PhaseConcept }) {
         {statusMark[concept.status]}
       </span>
       <div className="min-w-0 flex-1">
-        <div className="font-medium">{concept.title}</div>
+        <div className="flex items-baseline justify-between gap-3">
+          <div className="font-medium">{concept.title}</div>
+          <span className="shrink-0 text-xs tabular-nums text-foreground/40">
+            {formatMinutes(concept.estimated_minutes)}
+          </span>
+        </div>
         <p className="mt-1 line-clamp-2 text-sm text-foreground/60">
           {concept.description}
         </p>

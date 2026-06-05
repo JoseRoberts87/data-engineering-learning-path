@@ -6,6 +6,7 @@ import {
 } from "@/features/capstone/actions";
 import { MarkProgress } from "@/features/progress/MarkProgress";
 import { NotesArea } from "@/features/notes/NotesArea";
+import { Markdown } from "@/features/concept/sections/Markdown";
 
 export default async function CapstonePage() {
   const supabase = await createClient();
@@ -51,14 +52,16 @@ export default async function CapstonePage() {
               />
             </header>
 
-            <p className="mt-4 text-base leading-relaxed text-foreground/85">
-              {step.description}
-            </p>
+            <div className="mt-4">
+              <Markdown>{step.description}</Markdown>
+            </div>
 
             {step.hints && (
               <div className="mt-3 rounded-md bg-foreground/[0.03] p-3 text-sm text-foreground/70">
                 <span className="font-semibold text-foreground/80">Hints: </span>
-                {step.hints}
+                <Markdown className="!text-sm !text-foreground/70 inline-block">
+                  {step.hints}
+                </Markdown>
               </div>
             )}
 

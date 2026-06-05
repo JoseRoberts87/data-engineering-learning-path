@@ -10,6 +10,7 @@ export type PhaseConcept = {
   description: string;
   swe_analogy: string;
   sort_order: number;
+  estimated_minutes: number;
   status: ProgressStatus;
 };
 
@@ -20,6 +21,7 @@ export type PhaseDetail = {
   title: string;
   tagline: string | null;
   concepts: PhaseConcept[];
+  estimatedMinutes: number;
 };
 
 export async function getPhaseWithConcepts(
@@ -29,7 +31,7 @@ export async function getPhaseWithConcepts(
   const { data: phase, error } = await supabase
     .from("phases")
     .select(
-      "id, slug, number, title, tagline, concepts(id, slug, title, description, swe_analogy, sort_order)",
+      "id, slug, number, title, tagline, concepts(id, slug, title, description, swe_analogy, sort_order, estimated_minutes)",
     )
     .eq("slug", slug)
     .maybeSingle();
@@ -53,6 +55,7 @@ export async function getPhaseWithConcepts(
       description: c.description,
       swe_analogy: c.swe_analogy,
       sort_order: c.sort_order,
+      estimated_minutes: c.estimated_minutes,
       status: statusByConcept.get(c.id) ?? "not_started",
     }))
     .sort((a, b) => a.sort_order - b.sort_order);
@@ -64,5 +67,9 @@ export async function getPhaseWithConcepts(
     title: phase.title,
     tagline: phase.tagline,
     concepts,
+    estimatedMinutes: concepts.reduce(
+      (sum, c) => sum + (c.estimated_minutes ?? 0),
+      0,
+    ),
   };
 }

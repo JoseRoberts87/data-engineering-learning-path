@@ -14,6 +14,7 @@ export type ConceptDetail = {
   title: string;
   description: string;
   swe_analogy: string;
+  estimated_minutes: number;
   phase: { slug: string; number: number; title: string };
   resources: Resource[];
   sections: ConceptSection[];
@@ -28,7 +29,7 @@ export async function getConceptWithContext(
   const { data: concept, error } = await supabase
     .from("concepts")
     .select(
-      "id, slug, title, description, swe_analogy, phases!inner(slug, number, title), resources(title, url, resource_type)",
+      "id, slug, title, description, swe_analogy, estimated_minutes, phases!inner(slug, number, title), resources(title, url, resource_type)",
     )
     .eq("slug", slug)
     .maybeSingle();
@@ -67,6 +68,7 @@ export async function getConceptWithContext(
     title: concept.title,
     description: concept.description,
     swe_analogy: concept.swe_analogy,
+    estimated_minutes: concept.estimated_minutes,
     phase: {
       slug: concept.phases.slug,
       number: concept.phases.number,

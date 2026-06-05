@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getPhaseWithConcepts } from "@/features/phase/queries";
 import { ConceptRow } from "@/features/phase/ConceptRow";
 import { getCheckpointSummaryForPhase } from "@/features/checkpoint/queries";
+import { formatMinutes } from "@/lib/format";
 
 export default async function PhasePage({
   params,
@@ -39,9 +40,14 @@ export default async function PhasePage({
         )}
       </div>
 
-      <h2 className="mt-8 text-sm font-semibold uppercase tracking-wider text-foreground/60">
-        Concepts
-      </h2>
+      <div className="mt-8 flex items-baseline justify-between gap-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-foreground/60">
+          Concepts
+        </h2>
+        <div className="text-xs tabular-nums text-foreground/50">
+          {phase.concepts.length} concepts · {formatMinutes(phase.estimatedMinutes)}
+        </div>
+      </div>
       <div className="mt-3 space-y-2">
         {phase.concepts.map((c) => (
           <ConceptRow key={c.id} concept={c} />

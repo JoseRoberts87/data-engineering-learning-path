@@ -284,6 +284,7 @@ export type Database = {
         Row: {
           created_at: string
           description: string
+          estimated_minutes: number
           id: string
           phase_id: string
           slug: string
@@ -294,6 +295,7 @@ export type Database = {
         Insert: {
           created_at?: string
           description: string
+          estimated_minutes?: number
           id?: string
           phase_id: string
           slug: string
@@ -304,6 +306,7 @@ export type Database = {
         Update: {
           created_at?: string
           description?: string
+          estimated_minutes?: number
           id?: string
           phase_id?: string
           slug?: string

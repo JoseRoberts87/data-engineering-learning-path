@@ -43,6 +43,7 @@ async function upsertConcepts(
       description: c.description,
       swe_analogy: c.swe_analogy,
       sort_order: c.sort_order,
+      estimated_minutes: c.estimated_minutes,
     };
   });
   const { data, error } = await supabase

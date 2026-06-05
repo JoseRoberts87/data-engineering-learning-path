@@ -37,16 +37,20 @@ export function Markdown({
               {children}
             </blockquote>
           ),
-          a: ({ href, children }) => (
-            <a
-              href={href}
-              target="_blank"
-              rel="noreferrer"
-              className="underline hover:no-underline"
-            >
-              {children}
-            </a>
-          ),
+          a: ({ href, children }) => {
+            const isInternal =
+              typeof href === "string" && href.startsWith("/");
+            return (
+              <a
+                href={href}
+                target={isInternal ? undefined : "_blank"}
+                rel={isInternal ? undefined : "noreferrer"}
+                className="underline hover:no-underline"
+              >
+                {children}
+              </a>
+            );
+          },
         }}
       >
         {children}

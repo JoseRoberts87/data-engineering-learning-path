@@ -18,13 +18,37 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get("code");
   const next = searchParams.get("next") ?? "/path";
 
-  if (code) {
-    const supabase = await createClient();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) {
-      return NextResponse.redirect(`${origin}${next}`);
-    }
+  // Surface whatever Supabase already returned in the URL — useful when
+  // the verify endpoint itself failed before reaching us.
+  const supabaseError =
+    searchParams.get("error_description") ?? searchParams.get("error");
+
+  if (!code) {
+    const reason = supabaseError ?? "missing_code";
+    console.error("[auth/callback] no code in callback URL:", reason);
+    return NextResponse.redirect(
+      `${origin}/auth?error=${encodeURIComponent(reason)}`,
+    );
   }
 
-  return NextResponse.redirect(`${origin}/auth?error=callback_failed`);
+  const supabase = await createClient();
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  if (!error) {
+    return NextResponse.redirect(`${origin}${next}`);
+  }
+
+  // The most common failures here are (a) the verifier cookie is missing
+  // because the user clicked the email in a different browser/device than
+  // where they submitted the form, (b) the link's already been consumed
+  // (Gmail and corporate scanners pre-fetch URLs to scan them), or (c) the
+  // Supabase redirect-URL allowlist doesn't include this origin.
+  const reason = error.message || error.code || "exchange_failed";
+  console.error("[auth/callback] exchange failed:", {
+    reason,
+    code: error.code,
+    name: error.name,
+  });
+  return NextResponse.redirect(
+    `${origin}/auth?error=${encodeURIComponent(reason)}`,
+  );
 }
