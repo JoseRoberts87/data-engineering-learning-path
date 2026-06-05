@@ -1,0 +1,5 @@
+[test]
+# Register happy-dom's globals (window/document/HTMLElement) for the
+# component tests. The server-action and pure-utility tests don't need
+# the DOM but loading it is cheap (~ms) and keeps the test config trivial.
+preload = ["./test/setup-happy-dom.ts"]
