@@ -35,6 +35,9 @@ export default async function AppLayout({
             <Link href="/connections" className="hover:text-foreground">
               Connections
             </Link>
+            <Link href="/databricks" className="hover:text-foreground">
+              Databricks
+            </Link>
             <span className="text-foreground/40">·</span>
             <span className="text-foreground/50">{user.email}</span>
             <ThemeToggle />
