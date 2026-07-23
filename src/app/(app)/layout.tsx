@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { signOut } from "./actions";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { isAdmin } from "@/lib/admin";
 
 export default async function AppLayout({
   children,
@@ -17,6 +18,8 @@ export default async function AppLayout({
   if (!user) {
     redirect("/auth");
   }
+
+  const showAdminLink = isAdmin(user);
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
@@ -35,6 +38,11 @@ export default async function AppLayout({
             <Link href="/connections" className="hover:text-foreground">
               Connections
             </Link>
+            {showAdminLink && (
+              <Link href="/admin" className="hover:text-foreground">
+                Admin
+              </Link>
+            )}
             <span className="text-foreground/40">·</span>
             <span className="text-foreground/50">{user.email}</span>
             <ThemeToggle />

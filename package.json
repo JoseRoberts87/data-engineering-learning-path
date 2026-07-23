@@ -11,7 +11,8 @@
     "test": "bun test",
     "db:reset": "supabase db reset",
     "db:seed": "bun run supabase/seed/seed.ts",
-    "gen:types": "supabase gen types typescript --local > src/types/database.ts"
+    "gen:types": "supabase gen types typescript --local > src/types/database.ts",
+    "grant:admin": "bun run scripts/grant-admin.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.99.0",
